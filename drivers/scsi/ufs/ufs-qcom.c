@@ -3238,10 +3238,8 @@ int ufs_qcom_testbus_config(struct ufs_qcom_host *host)
 		return -EINVAL;
 	hba = host->hba;
 	spin_lock_irqsave(hba->host->host_lock, flags);
-	if (!ufs_qcom_testbus_cfg_is_ok(host)) {
-		spin_unlock_irqrestore(hba->host->host_lock, flags);
+	if (!ufs_qcom_testbus_cfg_is_ok(host))
 		return -EPERM;
-	}
 
 	switch (host->testbus.select_major) {
 	case TSTBUS_UAWM:

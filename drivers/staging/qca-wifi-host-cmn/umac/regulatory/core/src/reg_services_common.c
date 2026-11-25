@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014-2021 The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022,2024 Qualcomm Innovation Center, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -3338,7 +3338,7 @@ reg_update_usable_chan_resp(struct wlan_objmgr_pdev *pdev,
 	struct ch_params ch_params = {0};
 	int index = *count;
 
-	for (i = 0; i < len && index < NUM_CHANNELS; i++) {
+	for (i = 0; i < len; i++) {
 		/* In case usable channels are required for multiple filter
 		 * mask, Some frequencies may present in res_msg . To avoid
 		 * frequency duplication, only mode mask is updated for
@@ -3690,8 +3690,6 @@ reg_get_usable_channel_coex_filter(struct wlan_objmgr_pdev *pdev,
 			    chan_list[chan_enum].center_freq &&
 			    freq_range.end_freq >=
 			    chan_list[chan_enum].center_freq) {
-				reg_debug("avoid freq %d",
-					  chan_list[chan_enum].center_freq);
 				reg_remove_freq(res_msg, chan_enum);
 			}
 		}
@@ -3810,15 +3808,16 @@ wlan_reg_get_usable_channel(struct wlan_objmgr_pdev *pdev,
 		}
 	}
 
+	if (req_msg.filter_mask & 1 << FILTER_CELLULAR_COEX)
+		status =
+		reg_get_usable_channel_coex_filter(pdev, req_msg, res_msg,
+						   chan_list, usable_channels);
+
 	if (req_msg.filter_mask & 1 << FILTER_WLAN_CONCURRENCY)
 		status =
 		reg_get_usable_channel_con_filter(pdev, req_msg, res_msg,
 						  usable_channels);
 
-	if (req_msg.filter_mask & 1 << FILTER_CELLULAR_COEX)
-		status =
-		reg_get_usable_channel_coex_filter(pdev, req_msg, res_msg,
-						   chan_list, usable_channels);
 	if (!(req_msg.filter_mask & 1 << FILTER_CELLULAR_COEX) &&
 	    !(req_msg.filter_mask & 1 << FILTER_WLAN_CONCURRENCY))
 		status =
@@ -5113,7 +5112,7 @@ QDF_STATUS reg_get_6g_chan_ap_power(struct wlan_objmgr_pdev *pdev,
 QDF_STATUS reg_get_client_power_for_connecting_ap(struct wlan_objmgr_pdev *pdev,
 						  enum reg_6g_ap_type ap_type,
 						  qdf_freq_t chan_freq,
-						  bool is_psd,
+						  bool *is_psd,
 						  uint16_t *tx_power,
 						  uint16_t *eirp_psd_power)
 {
@@ -5136,7 +5135,8 @@ QDF_STATUS reg_get_client_power_for_connecting_ap(struct wlan_objmgr_pdev *pdev,
 	reg_find_txpower_from_6g_list(chan_freq, master_chan_list,
 				      tx_power);
 
-	if (is_psd)
+	*is_psd = reg_is_6g_psd_power(pdev);
+	if (*is_psd)
 		status = reg_get_6g_chan_psd_eirp_power(chan_freq,
 							master_chan_list,
 							eirp_psd_power);

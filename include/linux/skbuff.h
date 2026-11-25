@@ -1151,7 +1151,6 @@ static inline struct sk_buff *__pskb_copy(struct sk_buff *skb, int headroom,
 int pskb_expand_head(struct sk_buff *skb, int nhead, int ntail, gfp_t gfp_mask);
 struct sk_buff *skb_realloc_headroom(struct sk_buff *skb,
 				     unsigned int headroom);
-struct sk_buff *skb_expand_head(struct sk_buff *skb, unsigned int headroom);
 struct sk_buff *skb_copy_expand(const struct sk_buff *skb, int newheadroom,
 				int newtailroom, gfp_t priority);
 int __must_check skb_to_sgvec_nomark(struct sk_buff *skb, struct scatterlist *sg,
@@ -1284,6 +1283,32 @@ static inline __be32 skb_flow_get_ports(const struct sk_buff *skb,
 void skb_flow_dissector_init(struct flow_dissector *flow_dissector,
 			     const struct flow_dissector_key *key,
 			     unsigned int key_count);
+
+#ifdef CONFIG_NET
+int skb_flow_dissector_prog_query(const union bpf_attr *attr,
+				  union bpf_attr __user *uattr);
+int skb_flow_dissector_bpf_prog_attach(const union bpf_attr *attr,
+				       struct bpf_prog *prog);
+
+int skb_flow_dissector_bpf_prog_detach(const union bpf_attr *attr);
+#else
+static inline int skb_flow_dissector_prog_query(const union bpf_attr *attr,
+						union bpf_attr __user *uattr)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int skb_flow_dissector_bpf_prog_attach(const union bpf_attr *attr,
+						     struct bpf_prog *prog)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline int skb_flow_dissector_bpf_prog_detach(const union bpf_attr *attr)
+{
+	return -EOPNOTSUPP;
+}
+#endif
 
 struct bpf_flow_dissector;
 bool bpf_flow_dissect(struct bpf_prog *prog, struct bpf_flow_dissector *ctx,
@@ -1623,22 +1648,6 @@ static inline int skb_unclone(struct sk_buff *skb, gfp_t pri)
 	if (skb_cloned(skb))
 		return pskb_expand_head(skb, 0, 0, pri);
 
-	return 0;
-}
-
-/* This variant of skb_unclone() makes sure skb->truesize is not changed */
-static inline int skb_unclone_keeptruesize(struct sk_buff *skb, gfp_t pri)
-{
-	might_sleep_if(gfpflags_allow_blocking(pri));
-
-	if (skb_cloned(skb)) {
-		unsigned int save = skb->truesize;
-		int res;
-
-		res = pskb_expand_head(skb, 0, 0, pri);
-		skb->truesize = save;
-		return res;
-	}
 	return 0;
 }
 
@@ -2516,29 +2525,6 @@ static inline void skb_reset_transport_header(struct sk_buff *skb)
 	skb->transport_header = skb->data - skb->head;
 }
 
-/**
- * skb_reset_transport_header_careful - conditionally reset transport header
- * @skb: buffer to alter
- *
- * Hardened version of skb_reset_transport_header().
- *
- * Returns: true if the operation was a success.
- */
-static inline bool __must_check
-skb_reset_transport_header_careful(struct sk_buff *skb)
-{
-	long offset = skb->data - skb->head;
-
-	if (unlikely(offset != (typeof(skb->transport_header))offset))
-		return false;
-
-	if (unlikely(offset == (typeof(skb->transport_header))~0U))
-		return false;
-
-	skb->transport_header = offset;
-	return true;
-}
-
 static inline void skb_set_transport_header(struct sk_buff *skb,
 					    const int offset)
 {
@@ -2580,11 +2566,6 @@ static inline u32 skb_mac_header_len(const struct sk_buff *skb)
 static inline int skb_mac_header_was_set(const struct sk_buff *skb)
 {
 	return skb->mac_header != (typeof(skb->mac_header))~0U;
-}
-
-static inline void skb_unset_mac_header(struct sk_buff *skb)
-{
-	skb->mac_header = (typeof(skb->mac_header))~0U;
 }
 
 static inline void skb_reset_mac_header(struct sk_buff *skb)
@@ -3101,13 +3082,7 @@ static inline void *skb_frag_address(const skb_frag_t *frag)
  */
 static inline void *skb_frag_address_safe(const skb_frag_t *frag)
 {
-	struct page *page = skb_frag_page(frag);
-	void *ptr;
-
-	if (!page)
-		return NULL;
-
-	ptr = page_address(page);
+	void *ptr = page_address(skb_frag_page(frag));
 	if (unlikely(!ptr))
 		return NULL;
 
@@ -4000,14 +3975,6 @@ static inline void __skb_incr_checksum_unnecessary(struct sk_buff *skb)
 	}
 }
 
-static inline void __skb_reset_checksum_unnecessary(struct sk_buff *skb)
-{
-	if (skb->ip_summed == CHECKSUM_UNNECESSARY) {
-		skb->ip_summed = CHECKSUM_NONE;
-		skb->csum_level = 0;
-	}
-}
-
 /* Check if we need to perform checksum complete validation.
  *
  * Returns true if checksum complete is needed, false otherwise
@@ -4654,11 +4621,6 @@ static inline void skb_reset_redirect(struct sk_buff *skb)
 #ifdef CONFIG_NET_REDIRECT
 	skb->redirected = 0;
 #endif
-}
-
-static inline bool skb_csum_is_sctp(struct sk_buff *skb)
-{
-	return skb->csum_not_inet;
 }
 
 #endif	/* __KERNEL__ */

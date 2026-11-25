@@ -1,7 +1,6 @@
 /*
  * Copyright (c) 2018-2020 The Linux Foundation. All rights reserved.
  * Copyright (c) 2021-2023 Qualcomm Innovation Center, Inc. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -1204,18 +1203,6 @@ enum mlme_cfg_frame_type {
 
 #define MAX_MGMT_HW_TX_RETRY_COUNT 127
 
-/**
- * struct dual_sta_policy - Concurrent STA policy configuration
- * @concurrent_sta_policy: Possible values are defined in enum
- * qca_wlan_concurrent_sta_policy_config
- * @primary_vdev_id: specified iface is the primary STA iface, say 0 means
- * vdev 0 is acting as primary interface
- */
-struct dual_sta_policy {
-	uint8_t concurrent_sta_policy;
-	uint8_t primary_vdev_id;
-};
-
 /* struct wlan_mlme_generic - Generic CFG config items
  *
  * @band_capability: HW Band Capability - Both or 2.4G only or 5G only
@@ -1266,7 +1253,6 @@ struct dual_sta_policy {
  * @tx_retry_multiplier: TX xretry extension parameter
  * @mgmt_hw_tx_retry_count: MGMT HW tx retry count for frames
  * @std_6ghz_conn_policy: 6GHz standard connection policy
- * @dual_sta_policy: Dual STA policies configuration
  */
 struct wlan_mlme_generic {
 	uint32_t band_capability;
@@ -1316,7 +1302,6 @@ struct wlan_mlme_generic {
 #ifdef CONFIG_BAND_6GHZ
 	bool std_6ghz_conn_policy;
 #endif
-	struct dual_sta_policy dual_sta_policy;
 };
 
 /*
@@ -1695,10 +1680,8 @@ struct fw_scan_channels {
  * @roam_preauth_no_ack_timeout:    Configure the no ack timeout period
  * @roam_rssi_diff:                 Enable roam based on rssi
  * @roam_rssi_diff_6ghz: RSSI diff value to be used for roaming to 6 GHz AP.
- * @roam_rssi_delta_6ghz_to_non_6ghz: RSSI diff value to be used for
- * roaming from 6 GHz to Non 6GHz AP.
- * @roam_scan_offload_enabled: Enable Roam Scan Offload
- * @neighbor_scan_timer_period: Neighbor scan timer period
+ * @roam_scan_offload_enabled:      Enable Roam Scan Offload
+ * @neighbor_scan_timer_period:     Neighbor scan timer period
  * @neighbor_scan_min_timer_period: Min neighbor scan timer period
  * @neighbor_lookup_rssi_threshold: Neighbor lookup rssi threshold
  * @opportunistic_scan_threshold_diff: Set oppurtunistic threshold diff
@@ -1821,7 +1804,6 @@ struct wlan_mlme_lfr_cfg {
 	uint32_t roam_preauth_no_ack_timeout;
 	uint8_t roam_rssi_diff;
 	uint8_t roam_rssi_diff_6ghz;
-	uint8_t roam_rssi_delta_6ghz_to_non_6ghz;
 	uint8_t bg_rssi_threshold;
 	bool roam_scan_offload_enabled;
 	uint32_t neighbor_scan_timer_period;

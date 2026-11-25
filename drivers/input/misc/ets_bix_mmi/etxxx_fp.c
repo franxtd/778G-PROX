@@ -1543,7 +1543,7 @@ egistec_probe_failed:
 	return status;
 }
 
-static int __init egisfp_init(void)
+int __init egisfp_init(void)
 {
 	int status;
 	INFO_PRINT(" %s : module init \n", __func__);
@@ -1556,7 +1556,7 @@ static int __init egisfp_init(void)
 	INFO_PRINT(" %s : module init OK ! \n", __func__);
 	return status;
 }
-static void __exit egisfp_exit(void)
+void __exit egisfp_exit(void)
 {
 	INFO_PRINT("module exit \n");
 	platform_driver_unregister(&egisfp_driver);

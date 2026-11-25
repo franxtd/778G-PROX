@@ -139,8 +139,7 @@ int xhci_halt(struct xhci_hcd *xhci)
 	ret = xhci_handshake(&xhci->op_regs->status,
 			STS_HALT, STS_HALT, 3 * XHCI_MAX_HALT_USEC);
 	if (ret) {
-		if (!(xhci->xhc_state & XHCI_STATE_DYING))
-			xhci_warn(xhci, "Host halt failed, %d\n", ret);
+		xhci_warn(xhci, "Host halt failed, %d\n", ret);
 		return ret;
 	}
 	xhci->xhc_state |= XHCI_STATE_HALTED;
@@ -205,8 +204,7 @@ int xhci_reset(struct xhci_hcd *xhci, u64 timeout_us)
 	state = readl(&xhci->op_regs->status);
 
 	if (state == ~(u32)0) {
-		if (!(xhci->xhc_state & XHCI_STATE_DYING))
-			xhci_warn(xhci, "Host not accessible, reset failed.\n");
+		xhci_warn(xhci, "Host not accessible, reset failed.\n");
 		return -ENODEV;
 	}
 
@@ -1351,112 +1349,6 @@ EXPORT_SYMBOL_GPL(xhci_resume);
 
 /*-------------------------------------------------------------------------*/
 
-static int xhci_map_temp_buffer(struct usb_hcd *hcd, struct urb *urb)
-{
-	void *temp;
-	int ret = 0;
-	unsigned int buf_len;
-	enum dma_data_direction dir;
-
-	dir = usb_urb_dir_in(urb) ? DMA_FROM_DEVICE : DMA_TO_DEVICE;
-	buf_len = urb->transfer_buffer_length;
-
-	temp = kzalloc_node(buf_len, GFP_ATOMIC,
-			    dev_to_node(hcd->self.sysdev));
-	if (!temp)
-		return -ENOMEM;
-
-	if (usb_urb_dir_out(urb))
-		sg_pcopy_to_buffer(urb->sg, urb->num_sgs,
-				   temp, buf_len, 0);
-
-	urb->transfer_buffer = temp;
-	urb->transfer_dma = dma_map_single(hcd->self.sysdev,
-					   urb->transfer_buffer,
-					   urb->transfer_buffer_length,
-					   dir);
-
-	if (dma_mapping_error(hcd->self.sysdev,
-			      urb->transfer_dma)) {
-		ret = -EAGAIN;
-		kfree(temp);
-	} else {
-		urb->transfer_flags |= URB_DMA_MAP_SINGLE;
-	}
-
-	return ret;
-}
-
-static bool xhci_urb_temp_buffer_required(struct usb_hcd *hcd,
-					  struct urb *urb)
-{
-	bool ret = false;
-	unsigned int i;
-	unsigned int len = 0;
-	unsigned int trb_size;
-	unsigned int max_pkt;
-	struct scatterlist *sg;
-	struct scatterlist *tail_sg;
-
-	tail_sg = urb->sg;
-	max_pkt = usb_endpoint_maxp(&urb->ep->desc);
-
-	if (!urb->num_sgs)
-		return ret;
-
-	if (urb->dev->speed >= USB_SPEED_SUPER)
-		trb_size = TRB_CACHE_SIZE_SS;
-	else
-		trb_size = TRB_CACHE_SIZE_HS;
-
-	if (urb->transfer_buffer_length != 0 &&
-	    !(urb->transfer_flags & URB_NO_TRANSFER_DMA_MAP)) {
-		for_each_sg(urb->sg, sg, urb->num_sgs, i) {
-			len = len + sg->length;
-			if (i > trb_size - 2) {
-				len = len - tail_sg->length;
-				if (len < max_pkt) {
-					ret = true;
-					break;
-				}
-
-				tail_sg = sg_next(tail_sg);
-			}
-		}
-	}
-	return ret;
-}
-
-static void xhci_unmap_temp_buf(struct usb_hcd *hcd, struct urb *urb)
-{
-	unsigned int len;
-	unsigned int buf_len;
-	enum dma_data_direction dir;
-
-	dir = usb_urb_dir_in(urb) ? DMA_FROM_DEVICE : DMA_TO_DEVICE;
-
-	buf_len = urb->transfer_buffer_length;
-
-	if (IS_ENABLED(CONFIG_HAS_DMA) &&
-	    (urb->transfer_flags & URB_DMA_MAP_SINGLE))
-		dma_unmap_single(hcd->self.sysdev,
-				 urb->transfer_dma,
-				 urb->transfer_buffer_length,
-				 dir);
-
-	if (usb_urb_dir_in(urb))
-		len = sg_pcopy_from_buffer(urb->sg, urb->num_sgs,
-					   urb->transfer_buffer,
-					   buf_len,
-					   0);
-
-	urb->transfer_flags &= ~URB_DMA_MAP_SINGLE;
-	kfree(urb->transfer_buffer);
-	urb->transfer_buffer = NULL;
-}
-
-
-
 /*
  * Bypass the DMA mapping if URB is suitable for Immediate Transfer (IDT),
  * we'll copy the actual data into the TRB address register. This is limited to
@@ -1466,36 +1358,11 @@ static void xhci_unmap_temp_buf(struct usb_hcd *hcd, struct urb *urb)
 static int xhci_map_urb_for_dma(struct usb_hcd *hcd, struct urb *urb,
 				gfp_t mem_flags)
 {
-	struct xhci_hcd *xhci;
-
-	xhci = hcd_to_xhci(hcd);
-
 	if (xhci_urb_suitable_for_idt(urb))
 		return 0;
 
-	if (xhci->quirks & XHCI_SG_TRB_CACHE_SIZE_QUIRK) {
-		if (xhci_urb_temp_buffer_required(hcd, urb))
-			return xhci_map_temp_buffer(hcd, urb);
-	}
 	return usb_hcd_map_urb_for_dma(hcd, urb, mem_flags);
 }
-
-static void xhci_unmap_urb_for_dma(struct usb_hcd *hcd, struct urb *urb)
-{
-	struct xhci_hcd *xhci;
-	bool unmap_temp_buf = false;
-
-	xhci = hcd_to_xhci(hcd);
-
-	if (urb->num_sgs && (urb->transfer_flags & URB_DMA_MAP_SINGLE))
-		unmap_temp_buf = true;
-
-	if ((xhci->quirks & XHCI_SG_TRB_CACHE_SIZE_QUIRK) && unmap_temp_buf)
-		xhci_unmap_temp_buf(hcd, urb);
-	else
-		usb_hcd_unmap_urb_for_dma(hcd, urb);
-}
-
 
 /**
  * xhci_get_endpoint_index - Used for passing endpoint bitmasks between the core and
@@ -4132,7 +3999,7 @@ static void xhci_free_dev(struct usb_hcd *hcd, struct usb_device *udev)
 	xhci_disable_slot(xhci, udev->slot_id);
 
 	spin_lock_irqsave(&xhci->lock, flags);
-	xhci_free_virt_device(xhci, virt_dev, udev->slot_id);
+	xhci_free_virt_device(xhci, udev->slot_id);
 	spin_unlock_irqrestore(&xhci->lock, flags);
 
 }
@@ -4178,16 +4045,6 @@ int xhci_disable_slot(struct xhci_hcd *xhci, u32 slot_id)
 
 	xhci_free_command(xhci, command);
 
-	return ret;
-}
-
-int xhci_disable_and_free_slot(struct xhci_hcd *xhci, u32 slot_id)
-{
-	struct xhci_virt_device *vdev = xhci->devs[slot_id];
-	int ret;
-
-	ret = xhci_disable_slot(xhci, slot_id);
-	xhci_free_virt_device(xhci, vdev, slot_id);
 	return ret;
 }
 
@@ -4296,7 +4153,8 @@ int xhci_alloc_dev(struct usb_hcd *hcd, struct usb_device *udev)
 	return 1;
 
 disable_slot:
-	xhci_disable_and_free_slot(xhci, udev->slot_id);
+	xhci_disable_slot(xhci, udev->slot_id);
+	xhci_free_virt_device(xhci, udev->slot_id);
 
 	return 0;
 }
@@ -4425,7 +4283,8 @@ static int xhci_setup_device(struct usb_hcd *hcd, struct usb_device *udev,
 		dev_warn(&udev->dev, "Device not responding to setup %s.\n", act);
 
 		mutex_unlock(&xhci->mutex);
-		ret = xhci_disable_and_free_slot(xhci, udev->slot_id);
+		ret = xhci_disable_slot(xhci, udev->slot_id);
+		xhci_free_virt_device(xhci, udev->slot_id);
 		if (!ret) {
 			if (xhci_alloc_dev(hcd, udev) == 1)
 				xhci_setup_addressable_virt_dev(xhci, udev);
@@ -5739,7 +5598,6 @@ static const struct hc_driver xhci_hc_driver = {
 	 * managing i/o requests and associated device resources
 	 */
 	.map_urb_for_dma =      xhci_map_urb_for_dma,
-	.unmap_urb_for_dma =    xhci_unmap_urb_for_dma,
 	.urb_enqueue =		xhci_urb_enqueue,
 	.urb_dequeue =		xhci_urb_dequeue,
 	.alloc_dev =		xhci_alloc_dev,

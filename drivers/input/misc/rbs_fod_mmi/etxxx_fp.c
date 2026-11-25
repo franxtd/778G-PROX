@@ -162,7 +162,7 @@ static int fps_mmi_relay_cb(struct notifier_block *self,
 }
 
 
-static struct FPS_data *FPS_init(void)
+static struct FPS_data *FPS_init()
 {
 	int ret =0;
 	struct FPS_data *mdata = kzalloc(sizeof(struct FPS_data), GFP_KERNEL);
@@ -1473,7 +1473,7 @@ egistec_probe_failed:
 	return status;
 }
 
-static int __init egisfp_init(void)
+int __init egisfp_init(void)
 {
 	int status;
 	INFO_PRINT(" %s : module init \n", __func__);
@@ -1486,7 +1486,7 @@ static int __init egisfp_init(void)
 	INFO_PRINT(" %s : module init OK ! \n", __func__);
 	return status;
 }
-static void __exit egisfp_exit(void)
+void __exit egisfp_exit(void)
 {
 	INFO_PRINT("module exit \n");
 	platform_driver_unregister(&egisfp_driver);

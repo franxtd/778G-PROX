@@ -1,6 +1,6 @@
 FranProx Dubai - AnyKernel3 experimental boot-only package
 
-Target: Motorola Edge 30 (dubai), LineageOS 21 (Android 14), A/B boot image header v3.
+Target: Motorola Edge 30 (dubai), LineageOS 21 (Android 14), 20241227-NIGHTLY, Linux 5.4.286, A/B boot image header v3.
 This ZIP replaces the kernel in the active boot partition. It keeps the existing
 ramdisk, does not install kernel modules, and does not include DTB/DTBO or vendor_boot
 images. It does not request an AVB flag change.

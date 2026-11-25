@@ -161,6 +161,7 @@ struct dsi_backlight_config {
 	u32 bl_scale;
 	u32 bl_scale_sv;
 	bool bl_inverted_dbv;
+	bool bl_remap;
 	u32 real_bl_level;
 
 	int en_gpio;
@@ -173,7 +174,7 @@ struct dsi_backlight_config {
 	struct led_trigger *wled;
 	struct backlight_device *raw_bd;
 	struct backlight_device *i2c_bd;
-
+	
 	/* DCS params */
 	bool lp_mode;
 };

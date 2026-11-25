@@ -1,10 +1,8 @@
-Kernel: https://github.com/LineageOS/android_kernel_motorola_sm7325/tree/4e6e8fdd44cc8d53a2ee6a80eac9594358f21c44
-Common BoardConfig: https://github.com/LineageOS/android_device_motorola_sm7325-common/blob/c117c2ec850d01bf8d056e3052846645d523bb88/BoardConfigCommon.mk
-Dubai BoardConfig and module lists: https://github.com/LineageOS/android_device_motorola_dubai/tree/2e3a0cda79ef7a1cf9dff430cfaa83cea1b46551
-BakaSU revision: 57b2db6076f439cfd489f14576444e8f0f2f0a25
-AOSP Clang r614150 is the previously verified compiler, not a claim of the exact compiler used by the installed ROM.
-Experimental boot-only installer retained at user request; ABI of installed ROM not verified.
-
+Exact installed ROM kernel source: https://github.com/LineageOS/android_kernel_motorola_sm7325/commit/66c2bd08f072d86de02e685ddb000dd1ddb989fc
+ROM: 21.0-20241227-NIGHTLY-dubai
+Original kernel 5.4.286-moto-g66c2bd08f072, original clang r487747c 17.0.2.
+Retain r614150 23.0.1 at user's request; ABI and boot remain unverified.
+Device configuration: https://github.com/LineageOS/android_device_motorola_dubai/tree/2e3a0cda79ef7a1cf9dff430cfaa83cea1b46551
+Common configuration: https://github.com/LineageOS/android_device_motorola_sm7325-common/tree/c117c2ec850d01bf8d056e3052846645d523bb88
 Build rules: https://github.com/LineageOS/android_vendor_lineage/blob/85fbbf9a6601ca7af759aa0aa06d32f7a9800b36/build/tasks/kernel.mk
-Host tools and defaults: https://github.com/LineageOS/android_vendor_lineage/blob/85fbbf9a6601ca7af759aa0aa06d32f7a9800b36/config/BoardConfigKernel.mk
-Standalone adaptation uses r614150 and Ubuntu host tools, not the full ROM build environment. Generated dtb/dtbo and staged modules are diagnostic artifacts, not flashed automatically.
+Installed ROM module inventory transcribed from user's Termux output. Boot-only ZIP remains experimental; original vendor_boot, DTBO and vendor modules are untouched.

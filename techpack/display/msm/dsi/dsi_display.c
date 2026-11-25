@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
- * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/list.h>
@@ -2475,7 +2475,7 @@ static int dsi_display_debugfs_deinit(struct dsi_display *display)
 #endif /* CONFIG_DEBUG_FS */
 
 static void adjust_timing_by_ctrl_count(const struct dsi_display *display,
-					struct dsi_display_mode *mode, bool mode_set)
+					struct dsi_display_mode *mode)
 {
 	struct dsi_host_common_cfg *host = &display->panel->host_config;
 	bool is_split_link = host->split_link.split_link_enabled;
@@ -2489,7 +2489,7 @@ static void adjust_timing_by_ctrl_count(const struct dsi_display *display,
 		mode->timing.h_skew /= sublinks_count;
 		mode->pixel_clk_khz /= sublinks_count;
 	} else {
-		if ((mode->priv_info) && (mode->priv_info->dsc_enabled && mode_set))
+		if ((mode->priv_info) && (mode->priv_info->dsc_enabled))
 			mode->priv_info->dsc.config.pic_width =
 				mode->timing.h_active;
 		mode->timing.h_active /= display->ctrl_count;
@@ -5557,7 +5557,7 @@ static int dsi_display_get_dfps_timing(struct dsi_display *display,
 	}
 
 	per_ctrl_mode = *adj_mode;
-	adjust_timing_by_ctrl_count(display, &per_ctrl_mode, false);
+	adjust_timing_by_ctrl_count(display, &per_ctrl_mode);
 
 	if (!curr_refresh_rate) {
 		if (!dsi_display_is_seamless_dfps_possible(display,
@@ -6448,25 +6448,15 @@ static int dsi_display_init(struct dsi_display *display)
 		if (rc) {
 			DSI_ERR("[%s] failed to enable vregs, rc=%d\n",
 					display->panel->name, rc);
-			goto vreg_fail;
+			return rc;
 		}
 	}
 
 	rc = component_add(&pdev->dev, &dsi_display_comp_ops);
-	if (rc) {
+	if (rc)
 		DSI_ERR("component add failed, rc=%d\n", rc);
-		goto comp_add_fail;
-	}
 
 	DSI_DEBUG("component add success: %s\n", display->name);
-	return rc;
-
-comp_add_fail:
-	if (display->panel)
-		dsi_pwr_enable_regulator(&display->panel->power_info, false);
-vreg_fail:
-	_dsi_display_dev_deinit(display);
-
 end:
 	return rc;
 }
@@ -6745,10 +6735,6 @@ int dsi_display_dev_remove(struct platform_device *pdev)
 	}
 
 	display = platform_get_drvdata(pdev);
-	if (!display || !display->panel_node) {
-		DSI_ERR("invalid display\n");
-		return -EINVAL;
-	}
 
 	/* decrement ref count */
 	of_node_put(display->panel_node);
@@ -7806,10 +7792,8 @@ exit:
 	primary_display = display;
 
 error:
-	if (rc) {
+	if (rc)
 		kfree(display->modes);
-		display->modes = NULL;
-	}
 
 	mutex_unlock(&display->display_lock);
 	return rc;
@@ -8075,7 +8059,7 @@ int dsi_display_validate_mode(struct dsi_display *display,
 	mutex_lock(&display->display_lock);
 
 	adj_mode = *mode;
-	adjust_timing_by_ctrl_count(display, &adj_mode, false);
+	adjust_timing_by_ctrl_count(display, &adj_mode);
 
 	rc = dsi_panel_validate_mode(display->panel, &adj_mode);
 	if (rc) {
@@ -8133,8 +8117,7 @@ int dsi_display_set_mode(struct dsi_display *display,
 
 	adj_mode = *mode;
 	timing = adj_mode.timing;
-
-	adjust_timing_by_ctrl_count(display, &adj_mode, true);
+	adjust_timing_by_ctrl_count(display, &adj_mode);
 
 	if (!display->panel->cur_mode) {
 		display->panel->cur_mode =

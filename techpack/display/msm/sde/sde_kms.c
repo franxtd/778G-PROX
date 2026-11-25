@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
@@ -1264,6 +1264,16 @@ static void _sde_kms_release_splash_resource(struct sde_kms *sde_kms,
 	SDE_EVT32(DRMID(crtc), crtc->state->active,
 			sde_kms->splash_data.num_splash_displays);
 
+	/*remove all votes if eDP displays are done with splash*/
+	if (dp_display_get_num_of_boot_displays()) {
+		for (i = 0; i < SDE_POWER_HANDLE_DBUS_ID_MAX; i++)
+			sde_power_data_bus_set_quota(phandle, i,
+				SDE_POWER_HANDLE_ENABLE_BUS_AB_QUOTA,
+				phandle->ib_quota[i]);
+		pm_runtime_put_sync(sde_kms->dev->dev);
+		sde_kms->splash_data.num_splash_displays--;
+	}
+
 	for (i = 0; i < MAX_DSI_DISPLAYS; i++) {
 		splash_display = &sde_kms->splash_data.splash_display[i];
 		if (splash_display->encoder &&
@@ -2151,12 +2161,8 @@ static int _sde_kms_drm_obj_init(struct sde_kms *sde_kms)
 	}
 
 	/* All CRTCs are compatible with all encoders */
-	for (i = 0; i < priv->num_encoders; i++) {
+	for (i = 0; i < priv->num_encoders; i++)
 		priv->encoders[i]->possible_crtcs = (1 << priv->num_crtcs) - 1;
-		if (catalog->max_cwb > 0)
-			priv->encoders[i]->possible_clones =
-				sde_encoder_get_clones(priv->encoders[i]);
-	}
 
 	return 0;
 fail:
@@ -2962,6 +2968,7 @@ end:
 	return rc;
 }
 
+
 static int sde_kms_check_secure_transition(struct msm_kms *kms,
 		struct drm_atomic_state *state)
 {
@@ -3076,44 +3083,6 @@ static void sde_kms_vm_res_release(struct msm_kms *kms,
 	sde_vm_unlock(sde_kms);
 }
 
-static int sde_kms_check_cwb_concurreny(struct msm_kms *kms,
-		struct drm_atomic_state *state)
-{
-	struct sde_kms *sde_kms;
-	struct drm_crtc *crtc;
-	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
-	struct drm_encoder *encoder;
-	struct sde_crtc_state *cstate;
-	int i = 0, cnt = 0, max_cwb = 0;
-
-	if (!kms || !state) {
-		SDE_ERROR("invalid arguments\n");
-		return -EINVAL;
-	}
-
-	sde_kms = to_sde_kms(kms);
-	max_cwb = sde_kms->catalog->max_cwb;
-	if (!max_cwb)
-		return 0;
-
-	for_each_oldnew_crtc_in_state(state, crtc, old_crtc_state, new_crtc_state, i) {
-		cstate = to_sde_crtc_state(new_crtc_state);
-		drm_for_each_encoder_mask(encoder, crtc->dev, cstate->cwb_enc_mask) {
-			cnt++;
-			SDE_DEBUG("crtc%d has cwb%d attached to it\n", crtc->base.id,
-					encoder->base.id);
-		}
-
-		if (cnt > max_cwb) {
-			SDE_ERROR("found %d cwb in the atomic state, max supported %d\n",
-					cnt, max_cwb);
-			return -EOPNOTSUPP;
-		}
-	}
-
-	return 0;
-}
-
 static int sde_kms_atomic_check(struct msm_kms *kms,
 		struct drm_atomic_state *state)
 {
@@ -3151,11 +3120,6 @@ static int sde_kms_atomic_check(struct msm_kms *kms,
 	 * Secure state
 	 */
 	ret = sde_kms_check_secure_transition(kms, state);
-	if (ret)
-		goto vm_clean_up;
-
-
-	ret = sde_kms_check_cwb_concurreny(kms, state);
 	if (ret)
 		goto vm_clean_up;
 
@@ -3441,7 +3405,7 @@ static int sde_kms_cont_splash_config(struct msm_kms *kms,
 	struct msm_display_info info;
 	struct drm_encoder *encoder = NULL;
 	struct drm_crtc *crtc = NULL;
-	int i, rc = 0, splash_index = 0;
+	int i, rc = 0;
 	struct drm_display_mode *drm_mode = NULL;
 	struct drm_device *dev;
 	struct msm_drm_private *priv;
@@ -3479,7 +3443,7 @@ static int sde_kms_cont_splash_config(struct msm_kms *kms,
 
 	DRM_INFO("cont_splash enabled in %d of %d display(s)\n",
 				sde_kms->splash_data.num_splash_displays,
-				sde_kms->dsi_display_count + sde_kms->dp_display_count);
+				sde_kms->dsi_display_count);
 
 	/* dsi */
 	for (i = 0; i < sde_kms->dsi_display_count; ++i) {
@@ -3545,20 +3509,11 @@ static int sde_kms_cont_splash_config(struct msm_kms *kms,
 			mutex_unlock(&dev->mode_config.mutex);
 			return -EINVAL;
 		}
+		mutex_unlock(&dev->mode_config.mutex);
 
 		crtc->state->encoder_mask = (1 << drm_encoder_index(encoder));
-		/* get supported modes in case of external bridge panels*/
-		if (!dsi_display->panel->num_timing_nodes) {
-			connector->funcs->fill_modes(connector,
-				dev->mode_config.max_width,
-				dev->mode_config.max_height);
-			drm_mode = list_first_entry(&connector->modes,
-				struct drm_display_mode, head);
-		 }
-		 else
-			drm_mode = _sde_kms_get_splash_mode(sde_kms, connector, state);
 
-		mutex_unlock(&dev->mode_config.mutex);
+		drm_mode = _sde_kms_get_splash_mode(sde_kms, connector, state);
 		if (!drm_mode) {
 			SDE_ERROR("drm_mode not found; handoff_type:%d\n",
 					sde_kms->splash_data.type);
@@ -3613,19 +3568,6 @@ static int sde_kms_cont_splash_config(struct msm_kms *kms,
 		} else {
 			SDE_DEBUG("Invalid encoder\n");
 			break;
-		}
-
-		splash_display = &sde_kms->splash_data.splash_display[splash_index];
-		if (splash_display->cont_splash_enabled) {
-			priv = sde_kms->dev->dev_private;
-			encoder->crtc = priv->crtcs[splash_index];
-			splash_display->encoder =  encoder;
-
-			SDE_DEBUG("dp-display:%d splash_index:%d crtc id[%d]:%d enc id[%d]:%d\n",
-				i, splash_index, encoder->crtc->index, encoder->crtc->base.id,
-				encoder->index,	encoder->base.id);
-
-			splash_index++;
 		}
 
 		mutex_lock(&dev->mode_config.mutex);

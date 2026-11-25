@@ -779,7 +779,7 @@ static struct sk_buff *rmnet_alloc_skb(struct rmnet_frag_descriptor *frag_desc,
 			goto skip_frags;
 
 		if (!rmnet_frag_pull(frag_desc, port, hdr_len)) {
-			kfree_skb(head_skb);
+			kfree(head_skb);
 			return NULL;
 		}
 	} else {

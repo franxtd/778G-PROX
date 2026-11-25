@@ -227,7 +227,6 @@ struct nvt_ts_data {
         int supported_gesture_type;
         bool d_tap_flag;
         bool s_tap_flag;
-        bool legacy_gesture_fw;
 #endif
 #ifdef CONFIG_MTK_SPI
 	struct mt_chip_conf spi_ctrl;

@@ -701,7 +701,7 @@ int setup_arg_pages(struct linux_binprm *bprm,
 		    unsigned long stack_top,
 		    int executable_stack)
 {
-	int ret;
+	unsigned long ret;
 	unsigned long stack_shift;
 	struct mm_struct *mm = current->mm;
 	struct vm_area_struct *vma = bprm->vma;
@@ -1211,9 +1211,6 @@ no_thread_group:
 	tsk->exit_signal = SIGCHLD;
 
 #ifdef CONFIG_POSIX_TIMERS
-	spin_lock_irq(lock);
-	posix_cpu_timers_exit(tsk);
-	spin_unlock_irq(lock);
 	exit_itimers(sig);
 	flush_itimer_signals();
 #endif

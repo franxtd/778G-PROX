@@ -1230,7 +1230,7 @@ struct f2fs_bio_info {
 #define RDEV(i)				(raw_super->devs[i])
 struct f2fs_dev_info {
 	struct block_device *bdev;
-	char path[MAX_PATH_LEN + 1];
+	char path[MAX_PATH_LEN];
 	unsigned int total_segments;
 	block_t start_blk;
 	block_t end_blk;
@@ -1392,7 +1392,6 @@ struct compress_io_ctx {
 struct decompress_io_ctx {
 	u32 magic;			/* magic number to indicate page is compressed */
 	struct inode *inode;		/* inode the context belong to */
-	struct f2fs_sb_info *sbi;	/* f2fs_sb_info pointer */
 	pgoff_t cluster_idx;		/* cluster index number */
 	unsigned int cluster_size;	/* page count in cluster */
 	unsigned int log_cluster_size;	/* log of cluster size */
@@ -1407,7 +1406,6 @@ struct decompress_io_ctx {
 	size_t clen;			/* valid data length in cbuf */
 	refcount_t ref;			/* referrence count of compressed page */
 	bool failed;			/* indicate IO error during decompression */
-	unsigned char compress_algorithm;	/* backup algorithm type */
 	void *private;			/* payload buffer for specified decompression algorithm */
 	void *private2;			/* extra payload buffer */
 };
@@ -2112,14 +2110,8 @@ static inline void dec_valid_block_count(struct f2fs_sb_info *sbi,
 	blkcnt_t sectors = count << F2FS_LOG_SECTORS_PER_BLOCK;
 
 	spin_lock(&sbi->stat_lock);
-	if (unlikely(sbi->total_valid_block_count < count)) {
-		f2fs_warn(sbi, "Inconsistent total_valid_block_count:%u, ino:%lu, count:%u",
-			  sbi->total_valid_block_count, inode->i_ino, count);
-		sbi->total_valid_block_count = 0;
-		set_sbi_flag(sbi, SBI_NEED_FSCK);
-	} else {
-		sbi->total_valid_block_count -= count;
-	}
+	f2fs_bug_on(sbi, sbi->total_valid_block_count < (block_t) count);
+	sbi->total_valid_block_count -= (block_t)count;
 	if (sbi->reserved_blocks &&
 		sbi->current_reserved_blocks < sbi->reserved_blocks)
 		sbi->current_reserved_blocks = min(sbi->reserved_blocks,

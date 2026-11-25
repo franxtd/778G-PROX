@@ -893,7 +893,7 @@ repeat:
 		 * have the matching @file available.  Look up the inodes
 		 * and generate the events manually.
 		 */
-		inode = ilookup(info->sb, kernfs_ino(kn));
+		inode = ilookup(info->sb, kn->id.ino);
 		if (!inode)
 			continue;
 
@@ -902,7 +902,7 @@ repeat:
 		if (parent) {
 			struct inode *p_inode;
 
-			p_inode = ilookup(info->sb, kernfs_ino(parent));
+			p_inode = ilookup(info->sb, parent->id.ino);
 			if (p_inode) {
 				fsnotify(p_inode, FS_MODIFY | FS_EVENT_ON_CHILD,
 					 inode, FSNOTIFY_EVENT_INODE, &name, 0);

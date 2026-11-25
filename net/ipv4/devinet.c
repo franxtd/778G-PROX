@@ -332,13 +332,14 @@ static void inetdev_destroy(struct in_device *in_dev)
 
 static int __init inet_blackhole_dev_init(void)
 {
-	struct in_device *in_dev;
+	int err = 0;
 
 	rtnl_lock();
-	in_dev = inetdev_init(blackhole_netdev);
+	if (!inetdev_init(blackhole_netdev))
+		err = -ENOMEM;
 	rtnl_unlock();
 
-	return PTR_ERR_OR_ZERO(in_dev);
+	return err;
 }
 late_initcall(inet_blackhole_dev_init);
 
@@ -1316,11 +1317,10 @@ __be32 inet_select_addr(const struct net_device *dev, __be32 dst, int scope)
 	__be32 addr = 0;
 	unsigned char localnet_scope = RT_SCOPE_HOST;
 	struct in_device *in_dev;
-	struct net *net;
+	struct net *net = dev_net(dev);
 	int master_idx;
 
 	rcu_read_lock();
-	net = dev_net_rcu(dev);
 	in_dev = __in_dev_get_rcu(dev);
 	if (!in_dev)
 		goto no_in_dev;
@@ -2393,7 +2393,8 @@ static int devinet_conf_ifindex(struct net *net, struct ipv4_devconf *cnf)
 }
 
 static int devinet_conf_proc(struct ctl_table *ctl, int write,
-			     void *buffer, size_t *lenp, loff_t *ppos)
+			     void __user *buffer,
+			     size_t *lenp, loff_t *ppos)
 {
 	int old_value = *(int *)ctl->data;
 	int ret = proc_dointvec(ctl, write, buffer, lenp, ppos);
@@ -2445,7 +2446,8 @@ static int devinet_conf_proc(struct ctl_table *ctl, int write,
 }
 
 static int devinet_sysctl_forward(struct ctl_table *ctl, int write,
-				  void *buffer, size_t *lenp, loff_t *ppos)
+				  void __user *buffer,
+				  size_t *lenp, loff_t *ppos)
 {
 	int *valp = ctl->data;
 	int val = *valp;
@@ -2488,7 +2490,8 @@ static int devinet_sysctl_forward(struct ctl_table *ctl, int write,
 }
 
 static int ipv4_doint_and_flush(struct ctl_table *ctl, int write,
-				void *buffer, size_t *lenp, loff_t *ppos)
+				void __user *buffer,
+				size_t *lenp, loff_t *ppos)
 {
 	int *valp = ctl->data;
 	int val = *valp;

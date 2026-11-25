@@ -464,7 +464,6 @@ struct sde_crtc_state {
 
 	struct sde_core_perf_params new_perf;
 	u8 fod_dim_alpha;
-	bool color_invert_on;
 };
 
 enum sde_crtc_irq_state {
@@ -521,8 +520,7 @@ static inline int sde_crtc_get_mixer_width(struct sde_crtc *sde_crtc,
 	if (cstate->num_ds_enabled)
 		mixer_width = cstate->ds_cfg[0].lm_width;
 	else
-		mixer_width = sde_crtc->num_mixers ?
-			mode->hdisplay / sde_crtc->num_mixers : mode->hdisplay;
+		mixer_width = mode->hdisplay / sde_crtc->num_mixers;
 
 	return mixer_width;
 }

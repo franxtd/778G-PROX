@@ -125,7 +125,7 @@ static struct sock *__rfcomm_get_listen_sock_by_addr(u8 channel, bdaddr_t *src)
 }
 
 /* Find socket with channel and source bdaddr.
- * Returns closest match with an extra reference held.
+ * Returns closest match.
  */
 static struct sock *rfcomm_get_sock_by_channel(int state, u8 channel, bdaddr_t *src)
 {
@@ -139,24 +139,14 @@ static struct sock *rfcomm_get_sock_by_channel(int state, u8 channel, bdaddr_t *
 
 		if (rfcomm_pi(sk)->channel == channel) {
 			/* Exact match. */
-			if (!bacmp(&rfcomm_pi(sk)->src, src)) {
-				sock_hold(sk);
+			if (!bacmp(&rfcomm_pi(sk)->src, src))
 				break;
-			}
 
 			/* Closest match */
-			if (!bacmp(&rfcomm_pi(sk)->src, BDADDR_ANY)) {
-				if (sk1)
-					sock_put(sk1);
-
+			if (!bacmp(&rfcomm_pi(sk)->src, BDADDR_ANY))
 				sk1 = sk;
-				sock_hold(sk1);
-			}
 		}
 	}
-
-	if (sk && sk1)
-		sock_put(sk1);
 
 	read_unlock(&rfcomm_sk_list.lock);
 
@@ -746,8 +736,7 @@ static int rfcomm_sock_getsockopt_old(struct socket *sock, int optname, char __u
 	struct sock *l2cap_sk;
 	struct l2cap_conn *conn;
 	struct rfcomm_conninfo cinfo;
-	int err = 0;
-	size_t len;
+	int len, err = 0;
 	u32 opt;
 
 	BT_DBG("sk %p", sk);
@@ -801,7 +790,7 @@ static int rfcomm_sock_getsockopt_old(struct socket *sock, int optname, char __u
 		cinfo.hci_handle = conn->hcon->handle;
 		memcpy(cinfo.dev_class, conn->hcon->dev_class, 3);
 
-		len = min(len, sizeof(cinfo));
+		len = min_t(unsigned int, len, sizeof(cinfo));
 		if (copy_to_user(optval, (char *) &cinfo, len))
 			err = -EFAULT;
 
@@ -820,8 +809,7 @@ static int rfcomm_sock_getsockopt(struct socket *sock, int level, int optname, c
 {
 	struct sock *sk = sock->sk;
 	struct bt_security sec;
-	int err = 0;
-	size_t len;
+	int len, err = 0;
 
 	BT_DBG("sk %p", sk);
 
@@ -846,7 +834,7 @@ static int rfcomm_sock_getsockopt(struct socket *sock, int level, int optname, c
 		sec.level = rfcomm_pi(sk)->sec_level;
 		sec.key_size = 0;
 
-		len = min(len, sizeof(sec));
+		len = min_t(unsigned int, len, sizeof(sec));
 		if (copy_to_user(optval, (char *) &sec, len))
 			err = -EFAULT;
 
@@ -941,7 +929,6 @@ int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc *
 {
 	struct sock *sk, *parent;
 	bdaddr_t src, dst;
-	bool defer_setup = false;
 	int result = 0;
 
 	BT_DBG("session %p channel %d", s, channel);
@@ -954,11 +941,6 @@ int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc *
 		return 0;
 
 	bh_lock_sock(parent);
-
-	if (parent->sk_state != BT_LISTEN)
-		goto done;
-
-	defer_setup = test_bit(BT_SK_DEFER_SETUP, &bt_sk(parent)->flags);
 
 	/* Check for backlog size */
 	if (sk_acceptq_is_full(parent)) {
@@ -987,10 +969,8 @@ int rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc *
 done:
 	bh_unlock_sock(parent);
 
-	if (defer_setup)
+	if (test_bit(BT_SK_DEFER_SETUP, &bt_sk(parent)->flags))
 		parent->sk_state_change(parent);
-
-	sock_put(parent);
 
 	return result;
 }

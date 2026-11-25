@@ -642,7 +642,7 @@ static inline bool tun_not_capable(struct tun_struct *tun)
 	struct net *net = dev_net(tun->dev);
 
 	return ((uid_valid(tun->owner) && !uid_eq(cred->euid, tun->owner)) ||
-		(gid_valid(tun->group) && !in_egroup_p(tun->group))) &&
+		  (gid_valid(tun->group) && !in_egroup_p(tun->group))) &&
 		!ns_capable(net->user_ns, CAP_NET_ADMIN);
 }
 
@@ -1221,16 +1221,11 @@ static netdev_features_t tun_net_fix_features(struct net_device *dev,
 static void tun_set_headroom(struct net_device *dev, int new_hr)
 {
 	struct tun_struct *tun = netdev_priv(dev);
-	size_t max_headroom;
 
-	max_headroom = min_t(size_t, SKB_MAX_HEAD(0), U16_MAX - 1);
+	if (new_hr < NET_SKB_PAD)
+		new_hr = NET_SKB_PAD;
 
-	if ((tun->flags & TUN_TYPE_MASK) == IFF_TAP)
-		max_headroom -= ETH_HLEN + NET_IP_ALIGN;
-	else
-		max_headroom -= 1;
-
-	tun->align = clamp_t(int, new_hr, NET_SKB_PAD, max_headroom);
+	tun->align = new_hr;
 }
 
 static void
@@ -1412,7 +1407,7 @@ resample:
 
 static int tun_xdp_tx(struct net_device *dev, struct xdp_buff *xdp)
 {
-	struct xdp_frame *frame = xdp_convert_buff_to_frame(xdp);
+	struct xdp_frame *frame = convert_to_xdp_frame(xdp);
 
 	if (unlikely(!frame))
 		return -EOVERFLOW;
@@ -1806,7 +1801,7 @@ static struct sk_buff *tun_build_skb(struct tun_struct *tun,
 		}
 
 		if (err == XDP_REDIRECT)
-			xdp_do_flush();
+			xdp_do_flush_map();
 		if (err != XDP_PASS)
 			goto out;
 
@@ -1971,13 +1966,7 @@ drop:
 	switch (tun->flags & TUN_TYPE_MASK) {
 	case IFF_TUN:
 		if (tun->flags & IFF_NO_PI) {
-			u8 ip_version;
-
-			if (!pskb_may_pull(skb, 1)) {
-				err = -EINVAL;
-				goto drop;
-			}
-			ip_version = skb->data[0] >> 4;
+			u8 ip_version = skb->len ? (skb->data[0] >> 4) : 0;
 
 			switch (ip_version) {
 			case 4:
@@ -1998,7 +1987,7 @@ drop:
 		skb->dev = tun->dev;
 		break;
 	case IFF_TAP:
-		if (!pskb_may_pull(skb, ETH_HLEN)) {
+		if (frags && !pskb_may_pull(skb, ETH_HLEN)) {
 			err = -ENOMEM;
 			goto drop;
 		}
@@ -2668,7 +2657,7 @@ static int tun_sendmsg(struct socket *sock, struct msghdr *m, size_t total_len)
 		}
 
 		if (flush)
-			xdp_do_flush();
+			xdp_do_flush_map();
 
 		rcu_read_unlock();
 		local_bh_enable();

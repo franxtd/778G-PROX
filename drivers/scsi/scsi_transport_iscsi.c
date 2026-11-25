@@ -2924,14 +2924,11 @@ iscsi_set_host_param(struct iscsi_transport *transport,
 	}
 
 	/* see similar check in iscsi_if_set_param() */
-	if (strlen(data) > ev->u.set_host_param.len) {
-		err = -EINVAL;
-		goto out;
-	}
+	if (strlen(data) > ev->u.set_host_param.len)
+		return -EINVAL;
 
 	err = transport->set_host_param(shost, ev->u.set_host_param.param,
 					data, ev->u.set_host_param.len);
-out:
 	scsi_host_put(shost);
 	return err;
 }
@@ -3235,7 +3232,7 @@ static int iscsi_new_flashnode(struct iscsi_transport *transport,
 		pr_err("%s could not find host no %u\n",
 		       __func__, ev->u.new_flashnode.host_no);
 		err = -ENODEV;
-		goto exit_new_fnode;
+		goto put_host;
 	}
 
 	index = transport->new_flashnode(shost, data, len);
@@ -3245,6 +3242,7 @@ static int iscsi_new_flashnode(struct iscsi_transport *transport,
 	else
 		err = -EIO;
 
+put_host:
 	scsi_host_put(shost);
 
 exit_new_fnode:
@@ -3269,7 +3267,7 @@ static int iscsi_del_flashnode(struct iscsi_transport *transport,
 		pr_err("%s could not find host no %u\n",
 		       __func__, ev->u.del_flashnode.host_no);
 		err = -ENODEV;
-		goto exit_del_fnode;
+		goto put_host;
 	}
 
 	idx = ev->u.del_flashnode.flashnode_idx;
@@ -3311,7 +3309,7 @@ static int iscsi_login_flashnode(struct iscsi_transport *transport,
 		pr_err("%s could not find host no %u\n",
 		       __func__, ev->u.login_flashnode.host_no);
 		err = -ENODEV;
-		goto exit_login_fnode;
+		goto put_host;
 	}
 
 	idx = ev->u.login_flashnode.flashnode_idx;
@@ -3363,7 +3361,7 @@ static int iscsi_logout_flashnode(struct iscsi_transport *transport,
 		pr_err("%s could not find host no %u\n",
 		       __func__, ev->u.logout_flashnode.host_no);
 		err = -ENODEV;
-		goto exit_logout_fnode;
+		goto put_host;
 	}
 
 	idx = ev->u.logout_flashnode.flashnode_idx;
@@ -3413,7 +3411,7 @@ static int iscsi_logout_flashnode_sid(struct iscsi_transport *transport,
 		pr_err("%s could not find host no %u\n",
 		       __func__, ev->u.logout_flashnode.host_no);
 		err = -ENODEV;
-		goto exit_logout_sid;
+		goto put_host;
 	}
 
 	session = iscsi_session_lookup(ev->u.logout_flashnode_sid.sid);
@@ -3748,7 +3746,7 @@ iscsi_if_rx(struct sk_buff *skb)
 		}
 		do {
 			/*
-			 * special case for GET_STATS, GET_CHAP and GET_HOST_STATS:
+			 * special case for GET_STATS:
 			 * on success - sending reply and stats from
 			 * inside of if_recv_msg(),
 			 * on error - fall through.
@@ -3756,8 +3754,6 @@ iscsi_if_rx(struct sk_buff *skb)
 			if (ev->type == ISCSI_UEVENT_GET_STATS && !err)
 				break;
 			if (ev->type == ISCSI_UEVENT_GET_CHAP && !err)
-				break;
-			if (ev->type == ISCSI_UEVENT_GET_HOST_STATS && !err)
 				break;
 			err = iscsi_if_send_reply(portid, nlh->nlmsg_type,
 						  ev, sizeof(*ev));

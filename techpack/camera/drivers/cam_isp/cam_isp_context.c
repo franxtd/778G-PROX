@@ -4791,10 +4791,8 @@ static int __cam_isp_ctx_config_dev_in_top_state(
 	if ((len < sizeof(struct cam_packet)) ||
 		((size_t)cmd->offset >= len - sizeof(struct cam_packet))) {
 		CAM_ERR(CAM_ISP, "invalid buff length: %zu or offset", len);
-		spin_lock_bh(&ctx->lock);
-		list_add_tail(&req->list, &ctx->free_req_list);
-		spin_unlock_bh(&ctx->lock);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto free_req;
 	}
 
 	remain_len -= (size_t)cmd->offset;
