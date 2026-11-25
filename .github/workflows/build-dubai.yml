@@ -271,7 +271,21 @@ jobs:
           grep -qx '# CONFIG_KSU_SUSFS is not set' out/.config
           make -j"$(nproc)" "${opts[@]}" headers_install 2>&1 | tee logs/headers.log
           test -s out/usr/include/linux/unistd.h
-          make -j"$(nproc)" "${opts[@]}" KSU_REQUIRE_PREINIT=1 KSU_EXPECTED_SIZE2="$KSU_EXPECTED_SIZE2" KSU_EXPECTED_HASH2="$KSU_EXPECTED_HASH2" KSU_SECOND_SIGNATURE_RELEASE=1 Image dtbs modules 2>&1 | tee logs/build.log
+          # Diagnose independent driver errors before compiling the whole device.
+          # Keep the real kernel configuration and fail if any FinaSU object fails.
+          ksu_opts=(KSU_REQUIRE_PREINIT=1 KSU_EXPECTED_SIZE2="$KSU_EXPECTED_SIZE2"
+            KSU_EXPECTED_HASH2="$KSU_EXPECTED_HASH2" KSU_SECOND_SIGNATURE_RELEASE=1)
+          if ! make -k -j"$(nproc)" "${opts[@]}" "${ksu_opts[@]}" drivers/kernelsu/ 2>&1 | tee logs/finasu-preflight.log; then
+            {
+              echo '### FinaSU compatibility preflight failed'
+              echo 'Compiler errors (not a flashable kernel):'
+              echo '```text'
+              grep -E 'error:|undefined reference|LLVM ERROR' logs/finasu-preflight.log | head -n 100 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          make -j"$(nproc)" "${opts[@]}" "${ksu_opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
       - name: Report ccache statistics
         if: ${{ !cancelled() && steps.ccache-init.outcome == 'success' }}
         shell: bash
