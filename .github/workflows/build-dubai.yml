@@ -26,7 +26,7 @@ jobs:
       CCACHE_MAXSIZE: 3G
     steps:
       - name: Checkout kernel
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -43,7 +43,7 @@ jobs:
           echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
       - name: Restore apt package cache
         id: apt-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6.1.0
         continue-on-error: true
         with:
           path: ${{ env.APT_CACHE_DIR }}/*.deb
@@ -66,14 +66,14 @@ jobs:
           df -h
       - name: Save apt package cache
         if: steps.apt-cache.outputs.cache-hit != 'true' && steps.deps.outputs.has-debs == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6.1.0
         continue-on-error: true
         with:
           path: ${{ env.APT_CACHE_DIR }}/*.deb
           key: dubai-neutron-apt-v1-ubuntu24-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
       - name: Restore Neutron Clang toolchain
         id: clang-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6.1.0
         continue-on-error: true
         with:
           path: ${{ runner.temp }}/neutron-clang
@@ -115,14 +115,14 @@ jobs:
           echo "fingerprint=$compiler_hash" >> "$GITHUB_OUTPUT"
       - name: Save Neutron Clang toolchain
         if: steps.clang-cache.outputs.cache-hit != 'true' && steps.compiler.outputs.neutron-ready == 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6.1.0
         continue-on-error: true
         with:
           path: ${{ runner.temp }}/neutron-clang
           key: dubai-toolchain-v2-ubuntu24-${{ runner.arch }}-neutron-06092026-531083928c8e
       - name: Restore ccache
         id: ccache-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6.1.0
         continue-on-error: true
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -157,8 +157,35 @@ jobs:
           p.write_text(source.replace(old, "#include <asm/pgtable.h>"))
           PY
           fi
+          # The pinned 5.4 tree uses bool notify and the legacy fsnotify callback.
+          python3 - <<'PY'
+          from pathlib import Path
+          root = Path("FinaSU/kernel")
+          task_header = Path("include/linux/task_work.h").read_text()
+          if "struct callback_head *twork, bool)" in task_header:
+              for name in ("manager/pkg_observer.c", "manager/dynamic_manager.c",
+                           "policy/allowlist.c", "supercall/supercall.c"):
+                  p = root / name
+                  s = p.read_text()
+                  assert s.count("TWA_RESUME") == 1, name
+                  p.write_text(s.replace("TWA_RESUME", "true"))
+          fsnotify_header = Path("include/linux/fsnotify_backend.h").read_text()
+          if "int (*handle_inode_event)" not in fsnotify_header:
+              assert "int (*handle_event)(struct fsnotify_group *group," in fsnotify_header
+              p = root / "manager/pkg_observer.c"
+              s = p.read_text()
+              old = ("static int ksu_handle_inode_event(struct fsnotify_mark *mark, u32 mask, struct inode *inode, struct inode *dir,\n"
+                     "                                  const struct qstr *file_name, u32 cookie)")
+              new = ("static int ksu_handle_event(struct fsnotify_group *group, struct inode *inode,\n"
+                     "                            u32 mask, const void *data, int data_type,\n"
+                     "                            const struct qstr *file_name, u32 cookie,\n"
+                     "                            struct fsnotify_iter_info *iter_info)")
+              assert s.count(old) == 1
+              assert s.count(".handle_inode_event = ksu_handle_inode_event,") == 1
+              p.write_text(s.replace(old, new).replace(".handle_inode_event = ksu_handle_inode_event,", ".handle_event = ksu_handle_event,"))
+          PY
           git -C FinaSU diff --check
-          git -C FinaSU diff -- kernel/feature/sucompat.c | tee logs/finasu-compat.patch
+          git -C FinaSU diff -- kernel/ | tee logs/finasu-compat.patch
           sh FinaSU/kernel/setup.sh --dir "$PWD/FinaSU" 2>&1 | tee logs/finasu-setup.log
           test -e drivers/kernelsu/Kconfig
           grep -Fq 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
@@ -250,7 +277,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Save ccache (including partial builds)
         if: ${{ !cancelled() && steps.ccache-init.outcome == 'success' && steps.ccache-restore.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6.1.0
         continue-on-error: true
         with:
           path: ${{ env.CCACHE_DIR }}
@@ -282,7 +309,7 @@ jobs:
           (cd artifacts && sha256sum * > SHA256SUMS.txt)
           echo 'Static ARM64 kernel validation passed.' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload kernel artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: FranProx-Dubai-Neutron-FinaSU-${{ github.sha }}
           path: artifacts/
@@ -290,9 +317,31 @@ jobs:
           retention-days: 7
       - name: Upload logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: dubai-build-logs-${{ github.sha }}
           path: logs/
           if-no-files-found: warn
           retention-days: 7
+
+  cleanup-old-runs:
+    name: Delete superseded failed and cancelled runs
+    if: github.event_name == 'push' && github.event.before == '90fba537aebf60e64ba1b3f390e7751628456853' && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Delete only explicitly selected completed unsuccessful runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for id in 45606130388 45610118317 45610554680 45611255611 45613475700; do
+            test "$id" != "$GITHUB_RUN_ID"
+            metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")"
+            jq -e '.status == "completed" and (.conclusion == "failure" or .conclusion == "cancelled")' <<< "$metadata" >/dev/null
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$id"
+            echo "Deleted old run $id"
+          done
