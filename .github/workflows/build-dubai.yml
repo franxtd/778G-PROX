@@ -1,0 +1,106 @@
+name: Build and test Dubai kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [lineage-24.0, ci/dubai-kernel]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dubai-kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    env:
+      ARCH: arm64
+      SUBARCH: arm64
+      KBUILD_BUILD_USER: github
+      KBUILD_BUILD_HOST: actions
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang-14 lld-14 llvm-14 device-tree-compiler cpio rsync kmod python3 curl
+          df -h
+      - name: Set up compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          tc="$RUNNER_TEMP/android-clang"
+          mkdir -p "$tc"
+          url="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz"
+          if curl -fL --retry 2 --connect-timeout 20 --max-time 300 "$url" -o "$RUNNER_TEMP/clang.tar.gz" && tar -xzf "$RUNNER_TEMP/clang.tar.gz" -C "$tc" && "$tc/bin/clang" --version; then
+            echo "$tc/bin" >> "$GITHUB_PATH"
+            echo "LLVM_SUFFIX=" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Android clang-r416183b unavailable; using Ubuntu clang-14 for CI only."
+            echo "LLVM_SUFFIX=-14" >> "$GITHUB_ENV"
+          fi
+      - name: Configure and compile for Motorola Edge 30 (dubai)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out logs
+          clang${LLVM_SUFFIX} --version | tee logs/compiler.txt
+          cfg=arch/arm64/configs/vendor
+          scripts/kconfig/merge_config.sh -m -O out "$cfg/lahaina-qgki_defconfig" "$cfg/lineage_moto-lahaina.config" "$cfg/lineage_dubai.config" 2>&1 | tee logs/config-merge.log
+          opts=(O=out LLVM=1 LLVM_IAS=1
+            CC=clang${LLVM_SUFFIX} LD=ld.lld${LLVM_SUFFIX}
+            AR=llvm-ar${LLVM_SUFFIX} NM=llvm-nm${LLVM_SUFFIX}
+            OBJCOPY=llvm-objcopy${LLVM_SUFFIX} OBJDUMP=llvm-objdump${LLVM_SUFFIX}
+            READELF=llvm-readelf${LLVM_SUFFIX} STRIP=llvm-strip${LLVM_SUFFIX}
+            HOSTCC=clang${LLVM_SUFFIX} HOSTCXX=clang++${LLVM_SUFFIX}
+            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+            CLANG_TRIPLE=aarch64-linux-gnu-)
+          make "${opts[@]}" olddefconfig 2>&1 | tee logs/config.log
+          cp out/.config logs/kernel.config
+          grep -qx 'CONFIG_ARM64=y' out/.config
+          grep -qx 'CONFIG_ARCH_YUPIK=y' out/.config
+          make -j"$(nproc)" "${opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
+      - name: Verify kernel artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s out/arch/arm64/boot/Image
+          test -s out/vmlinux
+          test -s out/Module.symvers
+          readelf -h out/vmlinux | tee logs/elf-header.txt
+          grep -q AArch64 logs/elf-header.txt
+          python3 -c 'from pathlib import Path; p=Path("out/arch/arm64/boot/Image"); f=p.open("rb"); f.seek(56); assert f.read(4)==b"ARM\x64", "Invalid ARM64 Image magic"'
+          mkdir -p artifacts
+          cp out/arch/arm64/boot/Image artifacts/
+          cp out/.config artifacts/kernel.config
+          cp out/Module.symvers out/System.map artifacts/
+          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -print | sort | tee logs/device-trees.txt
+          test -s logs/device-trees.txt
+          tar -czf artifacts/device-trees.tar.gz -T logs/device-trees.txt
+          find out -type f -name '*.ko' -print | sort | tee logs/modules.txt
+          test -s logs/modules.txt
+          tar -czf artifacts/modules.tar.gz -T logs/modules.txt
+          (cd artifacts && sha256sum * > SHA256SUMS.txt)
+          echo 'Static ARM64 kernel validation passed.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload kernel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dubai-kernel-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dubai-build-logs-${{ github.sha }}
+          path: logs/
+          if-no-files-found: warn
+          retention-days: 7
