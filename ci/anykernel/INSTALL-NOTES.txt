@@ -1,0 +1,14 @@
+FranProx Dubai - AnyKernel3 experimental boot-only package
+
+Target: Motorola Edge 30 (dubai), LineageOS 24.0, A/B boot image header v3.
+This ZIP replaces the kernel in the active boot partition. It keeps the existing
+ramdisk, does not install kernel modules, and does not include DTB/DTBO or vendor_boot
+images. It does not request an AVB flag change.
+
+IMPORTANT: The kernel/module ABI must match the installed ROM. A successful build
+does not establish boot or module compatibility. The matching compiled modules and
+device trees are available in the separate raw kernel artifact for this same run.
+Do not flash until compatibility has been checked. Keep the original ROM boot.img
+and a working recovery/fastboot restore method.
+
+AnyKernel3: https://github.com/osm0sis/AnyKernel3

@@ -58,7 +58,7 @@ jobs:
           mkdir -p "$APT_CACHE_DIR/partial"
           sudo chown _apt:root "$APT_CACHE_DIR/partial"
           sudo apt-get update
-          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR/" -o APT::Keep-Downloaded-Packages=true -o Binary::apt-get::APT::Keep-Downloaded-Packages=true install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi device-tree-compiler cpio rsync kmod python3 curl ccache
+          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR/" -o APT::Keep-Downloaded-Packages=true -o Binary::apt-get::APT::Keep-Downloaded-Packages=true install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi device-tree-compiler cpio rsync kmod python3 curl ccache zip unzip
           sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"
           if find "$APT_CACHE_DIR" -maxdepth 1 -type f -name '*.deb' -print -quit | grep -q .; then
             echo "has-debs=true" >> "$GITHUB_OUTPUT"
@@ -243,6 +243,46 @@ jobs:
         with:
           name: dubai-bakasu-kernel-${{ github.sha }}
           path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Package AnyKernel3 (experimental boot-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ak="$RUNNER_TEMP/dubai-anykernel3"
+          mkdir -p packages
+          git clone --branch master --single-branch https://github.com/osm0sis/AnyKernel3.git "$ak"
+          git -C "$ak" checkout --detach 41f04bdb4ee30a44e429c2c1131d5e8bb32b15f1
+          test "$(git -C "$ak" rev-parse HEAD)" = 41f04bdb4ee30a44e429c2c1131d5e8bb32b15f1
+          git -C "$ak" rev-parse HEAD | tee logs/anykernel-revision.txt
+          rm -rf "$ak/.git" "$ak/.github" "$ak/ramdisk" "$ak/patch" "$ak/modules"
+          cp ci/anykernel/dubai.sh "$ak/anykernel.sh"
+          cp ci/anykernel/INSTALL-NOTES.txt "$ak/INSTALL-NOTES.txt"
+          cp artifacts/Image "$ak/Image"
+          test -s "$ak/META-INF/com/google/android/update-binary"
+          test -s "$ak/tools/ak3-core.sh"
+          test -s "$ak/Image"
+          sh -n "$ak/anykernel.sh"
+          name="FranProx-Dubai-BakaSU-AnyKernel3-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
+          output="$GITHUB_WORKSPACE/packages/$name"
+          (cd "$ak" && zip -q -r -9 -y "$output" .)
+          unzip -t "$output" | tee logs/anykernel-zip-check.txt
+          python3 - "$output" <<'PY'
+          import sys, zipfile
+          with zipfile.ZipFile(sys.argv[1]) as z:
+              names = set(z.namelist())
+              assert {'Image', 'anykernel.sh', 'META-INF/com/google/android/update-binary', 'tools/ak3-core.sh'} <= names
+              assert not any(n.startswith(('.git/', 'modules/', 'ramdisk/', 'patch/')) for n in names)
+              with z.open('Image') as f:
+                  assert f.read(64)[56:60] == b'ARM\x64'
+          PY
+          (cd packages && sha256sum "$name" > SHA256SUMS.txt)
+          echo "Generated experimental boot-only AnyKernel3 ZIP: $name" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload AnyKernel3 ZIP
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: FranProx-Dubai-AnyKernel3-${{ github.sha }}
+          path: packages/
           if-no-files-found: error
           retention-days: 7
       - name: Upload logs
