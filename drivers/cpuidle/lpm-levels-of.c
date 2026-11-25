@@ -86,7 +86,7 @@ static ssize_t lpm_latency_show(struct kobject *kobj,
 		struct kobj_attribute *attr, char *buf)
 {
 	int ret = 0;
-	struct kernel_param kp;
+	struct kernel_param kp = {};
 	struct lpm_level_avail *avail = get_avail_ptr(kobj, attr);
 
 	if (WARN_ON(!avail))
@@ -107,7 +107,7 @@ static ssize_t lpm_enable_show(struct kobject *kobj,
 			       struct kobj_attribute *attr, char *buf)
 {
 	int ret = 0;
-	struct kernel_param kp;
+	struct kernel_param kp = {};
 	struct lpm_level_avail *avail = get_avail_ptr(kobj, attr);
 
 	if (WARN_ON(!avail))
@@ -131,7 +131,7 @@ static ssize_t lpm_enable_store(struct kobject *kobj,
 				const char *buf, size_t len)
 {
 	int ret = 0;
-	struct kernel_param kp;
+	struct kernel_param kp = {};
 	struct lpm_level_avail *avail;
 
 	avail = get_avail_ptr(kobj, attr);
