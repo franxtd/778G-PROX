@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
       ARCH: arm64
@@ -47,9 +47,9 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ env.APT_CACHE_DIR }}/*.deb
-          key: dubai-neutron-apt-v1-ubuntu22-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
+          key: dubai-neutron-apt-v1-ubuntu24-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
           restore-keys: |
-            dubai-neutron-apt-v1-ubuntu22-${{ runner.arch }}-
+            dubai-neutron-apt-v1-ubuntu24-${{ runner.arch }}-
       - name: Install build dependencies
         id: deps
         shell: bash
@@ -70,14 +70,14 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ env.APT_CACHE_DIR }}/*.deb
-          key: dubai-neutron-apt-v1-ubuntu22-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
+          key: dubai-neutron-apt-v1-ubuntu24-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
       - name: Restore Neutron Clang toolchain
         id: clang-cache
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
           path: ${{ runner.temp }}/neutron-clang
-          key: dubai-toolchain-v1-linux-${{ runner.arch }}-neutron-06092026-531083928c8e
+          key: dubai-toolchain-v2-ubuntu24-${{ runner.arch }}-neutron-06092026-531083928c8e
       - name: Set up pinned Neutron Clang
         id: compiler
         shell: bash
@@ -106,7 +106,8 @@ jobs:
             rm -f "$archive"
             printf '%s\n' "$digest" > "$tc/.archive-sha256"
           fi
-          valid_toolchain
+          mkdir -p logs
+          valid_toolchain 2>&1 | tee logs/neutron-toolchain.log
           echo "$tc/bin" >> "$GITHUB_PATH"
           echo "LLVM_SUFFIX=" >> "$GITHUB_ENV"
           echo "neutron-ready=true" >> "$GITHUB_OUTPUT"
@@ -118,16 +119,16 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ runner.temp }}/neutron-clang
-          key: dubai-toolchain-v1-linux-${{ runner.arch }}-neutron-06092026-531083928c8e
+          key: dubai-toolchain-v2-ubuntu24-${{ runner.arch }}-neutron-06092026-531083928c8e
       - name: Restore ccache
         id: ccache-restore
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: dubai-neutron-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: dubai-neutron-ccache-v2-ubuntu24-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            dubai-neutron-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-
+            dubai-neutron-ccache-v2-ubuntu24-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-
       - name: Initialize ccache
         id: ccache-init
         shell: bash
@@ -239,7 +240,7 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: dubai-neutron-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: dubai-neutron-ccache-v2-ubuntu24-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Verify kernel artifacts
         shell: bash
         run: |
