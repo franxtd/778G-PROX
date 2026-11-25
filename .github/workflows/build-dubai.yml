@@ -28,14 +28,14 @@ jobs:
       - name: Checkout kernel
         uses: actions/checkout@v7.0.1
         with:
-          ref: 4e223b9318d9c5a19c1af453a8cf46e8b6b568dc
+          ref: 9c8fa3e2c58ca9158ce5933c813e8156c59dfdac
           fetch-depth: 1
           persist-credentials: false
       - name: Verify exact kernel source checkout
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 4e223b9318d9c5a19c1af453a8cf46e8b6b568dc
+          test "$(git rev-parse HEAD)" = 9c8fa3e2c58ca9158ce5933c813e8156c59dfdac
           mkdir -p logs
           git rev-parse HEAD | tee logs/kernel-source-commit.txt
       - name: Prepare tool cache
@@ -219,9 +219,9 @@ jobs:
             exit 1
           fi
           # Follow vendor/lineage/build/tasks/kernel.mk target ordering.
-          make -j"$(nproc)" "${opts[@]}" Image 2>&1 | tee logs/build.log
+          make -k -j"$(nproc)" "${opts[@]}" Image 2>&1 | tee logs/build.log
           make -j"$(nproc)" "${opts[@]}" dtbs 2>&1 | tee logs/dtbs.log
-          make -j"$(nproc)" "${opts[@]}" modules 2>&1 | tee logs/modules-build.log
+          make -k -j"$(nproc)" "${opts[@]}" modules 2>&1 | tee logs/modules-build.log
           make -j"$(nproc)" "${opts[@]}" "INSTALL_MOD_PATH=$GITHUB_WORKSPACE/module-install" INSTALL_MOD_STRIP=1 modules_install 2>&1 | tee logs/modules-install.log
           test -s out/include/config/kernel.release
           test -d "module-install/lib/modules/$(cat out/include/config/kernel.release)"
