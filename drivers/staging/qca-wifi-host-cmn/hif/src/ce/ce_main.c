@@ -2215,6 +2215,11 @@ hif_send_head(struct hif_opaque_softc *hif_ctx,
 		nfrags++;
 	} while (bytes > 0);
 
+	if (qdf_unlikely(!ce_hdl)) {
+		hif_err("CE handle is null");
+		return QDF_STATUS_E_FAILURE;
+	}
+
 	/* Make sure we have resources to handle this request */
 	qdf_spin_lock_bh(&pipe_info->completion_freeq_lock);
 	if (pipe_info->num_sends_allowed < nfrags) {
@@ -2224,11 +2229,6 @@ hif_send_head(struct hif_opaque_softc *hif_ctx,
 	}
 	pipe_info->num_sends_allowed -= nfrags;
 	qdf_spin_unlock_bh(&pipe_info->completion_freeq_lock);
-
-	if (qdf_unlikely(!ce_hdl)) {
-		hif_err("CE handle is null");
-		return A_ERROR;
-	}
 
 	QDF_NBUF_UPDATE_TX_PKT_COUNT(nbuf, QDF_NBUF_TX_PKT_HIF);
 	DPTRACE(qdf_dp_trace(nbuf, QDF_DP_TRACE_HIF_PACKET_PTR_RECORD,
