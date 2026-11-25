@@ -212,34 +212,3 @@ jobs:
           path: logs/
           if-no-files-found: warn
           retention-days: 7
-
-  cleanup-broken-pipe-run:
-    name: Remove superseded build 13
-    if: github.event_name == 'push' && github.event.before == 'ce75b130a5ac6106c1d5df6eadf6f5f5a7210b52' && github.run_attempt == 1
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-    steps:
-      - name: Delete only the requested previous run
-        shell: bash
-        run: |
-          set -euo pipefail
-          run_id=45619014158
-          test "$run_id" != "$GITHUB_RUN_ID"
-          endpoint="repos/$GITHUB_REPOSITORY/actions/runs/$run_id"
-          info="$(gh api "$endpoint")"
-          jq -e ' .id == 45619014158 and .head_sha == "ce75b130a5ac6106c1d5df6eadf6f5f5a7210b52" and .head_branch == "ci/franprox-neutron" ' <<< "$info" >/dev/null
-          for attempt in $(seq 1 30); do
-            info="$(gh api "$endpoint")"
-            if [ "$(jq -r .status <<< "$info")" = completed ]; then
-              gh api --method DELETE "$endpoint"
-              echo "Deleted superseded build #13 ($run_id)."
-              exit 0
-            fi
-            sleep 5
-          done
-          echo "::error::Previous run has not finished cancellation; no deletion performed."
-          exit 1
