@@ -28,14 +28,14 @@ jobs:
       - name: Checkout kernel
         uses: actions/checkout@v7.0.1
         with:
-          ref: 9c8fa3e2c58ca9158ce5933c813e8156c59dfdac
+          ref: 0db0715450389d0e2bc5688972f696027860afcf
           fetch-depth: 1
           persist-credentials: false
       - name: Verify exact kernel source checkout
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = 9c8fa3e2c58ca9158ce5933c813e8156c59dfdac
+          test "$(git rev-parse HEAD)" = 0db0715450389d0e2bc5688972f696027860afcf
           mkdir -p logs
           git rev-parse HEAD | tee logs/kernel-source-commit.txt
       - name: Prepare tool cache
