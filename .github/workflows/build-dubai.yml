@@ -58,7 +58,7 @@ jobs:
           mkdir -p "$APT_CACHE_DIR/partial"
           sudo chown _apt:root "$APT_CACHE_DIR/partial"
           sudo apt-get update
-          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR/" -o APT::Keep-Downloaded-Packages=true -o Binary::apt-get::APT::Keep-Downloaded-Packages=true install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi device-tree-compiler cpio rsync kmod python3 curl ccache zip unzip
+          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR/" -o APT::Keep-Downloaded-Packages=true -o Binary::apt-get::APT::Keep-Downloaded-Packages=true install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves device-tree-compiler lz4 cpio rsync kmod python3 curl ccache zip unzip
           sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"
           if find "$APT_CACHE_DIR" -maxdepth 1 -type f -name '*.deb' -print -quit | grep -q .; then
             echo "has-debs=true" >> "$GITHUB_OUTPUT"
@@ -166,16 +166,17 @@ jobs:
           test "$(git hash-object "$cfg/lahaina-qgki_defconfig")" = 09668a261513a2b3587c05b8dd07ad25b8ce464e
           test "$(git hash-object "$cfg/lineage_moto-lahaina.config")" = 8eb407aaadcbaa74560a6fa6582f5675f97507fe
           test "$(git hash-object "$cfg/lineage_dubai.config")" = 0d2b016bb57f504e6c343e8747177377e87ee83d
-          scripts/kconfig/merge_config.sh -m -O out "$cfg/lahaina-qgki_defconfig" "$cfg/lineage_moto-lahaina.config" "$cfg/lineage_dubai.config" 2>&1 | tee logs/config-merge.log
-          scripts/config --file out/.config --enable KSU --enable KPROBES --enable KALLSYMS_ALL --enable EXT4_FS --enable HEADERS_INSTALL --enable KSU_MANUAL_HOOK --enable KSU_MANUAL_HOOK_AUTO_SETUID_HOOK --enable KSU_MANUAL_HOOK_AUTO_INITRC_HOOK --enable KSU_MANUAL_HOOK_AUTO_INPUT_HOOK --disable KSU_TRACEPOINT_HOOK --disable KSU_SUSFS --disable KSU_DEBUG --disable KSU_TOOLKIT_SUPPORT --disable KSU_DISABLE_MANAGER --disable KSU_DISABLE_POLICY
           opts=(O=out LLVM=1 LLVM_IAS=1
-            "CC=ccache clang${LLVM_SUFFIX}" LD=ld.lld${LLVM_SUFFIX}
-            AR=llvm-ar${LLVM_SUFFIX} NM=llvm-nm${LLVM_SUFFIX}
+            "CC=ccache clang${LLVM_SUFFIX} --cuda-path=/dev/null --hip-path=/dev/null"
+            LD=ld.lld${LLVM_SUFFIX} AR=llvm-ar${LLVM_SUFFIX} NM=llvm-nm${LLVM_SUFFIX}
             OBJCOPY=llvm-objcopy${LLVM_SUFFIX} OBJDUMP=llvm-objdump${LLVM_SUFFIX}
             READELF=llvm-readelf${LLVM_SUFFIX} STRIP=llvm-strip${LLVM_SUFFIX}
             HOSTCC=clang${LLVM_SUFFIX} HOSTCXX=clang++${LLVM_SUFFIX}
-            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-            CLANG_TRIPLE=aarch64-linux-gnu-)
+            "DTC_EXT=$(command -v dtc)" "LZ4=$(command -v lz4)")
+          # Match the ROM Kbuild target order, including each fragment olddefconfig.
+          make "${opts[@]}" vendor/lahaina-qgki_defconfig vendor/lineage_moto-lahaina.config vendor/lineage_dubai.config 2>&1 | tee logs/config-merge.log
+          cp out/.config logs/rom-config-before-root.txt
+          scripts/config --file out/.config --enable KSU --enable KPROBES --enable KALLSYMS_ALL --enable EXT4_FS --enable HEADERS_INSTALL --enable KSU_MANUAL_HOOK --enable KSU_MANUAL_HOOK_AUTO_SETUID_HOOK --enable KSU_MANUAL_HOOK_AUTO_INITRC_HOOK --enable KSU_MANUAL_HOOK_AUTO_INPUT_HOOK --disable KSU_TRACEPOINT_HOOK --disable KSU_SUSFS --disable KSU_DEBUG --disable KSU_TOOLKIT_SUPPORT --disable KSU_DISABLE_MANAGER --disable KSU_DISABLE_POLICY
           make "${opts[@]}" olddefconfig 2>&1 | tee logs/config.log
           cp out/.config logs/kernel.config
           grep -qx 'CONFIG_ARM64=y' out/.config
@@ -205,7 +206,13 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
-          make -j"$(nproc)" "${opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
+          # Follow vendor/lineage/build/tasks/kernel.mk target ordering.
+          make -j"$(nproc)" "${opts[@]}" Image 2>&1 | tee logs/build.log
+          make -j"$(nproc)" "${opts[@]}" dtbs 2>&1 | tee logs/dtbs.log
+          make -j"$(nproc)" "${opts[@]}" modules 2>&1 | tee logs/modules-build.log
+          make -j"$(nproc)" "${opts[@]}" "INSTALL_MOD_PATH=$GITHUB_WORKSPACE/module-install" INSTALL_MOD_STRIP=1 modules_install 2>&1 | tee logs/modules-install.log
+          test -s out/include/config/kernel.release
+          test -d "module-install/lib/modules/$(cat out/include/config/kernel.release)"
       - name: Report ccache statistics
         if: ${{ !cancelled() && steps.ccache-init.outcome == 'success' }}
         shell: bash
@@ -260,6 +267,22 @@ jobs:
           fi
           echo 'Experimental boot-only ZIP: installed ROM module ABI has not been verified.' >> "$GITHUB_STEP_SUMMARY"
           tar -czf artifacts/modules.tar.gz -T logs/modules.txt
+          # Recreate ROM module staging and dependency files, not partition images.
+          python3 ci/lineage21/stage-modules.py "module-install/lib/modules/$(cat out/include/config/kernel.release)" rom-module-staging ci/lineage21 logs
+          tar -czf artifacts/rom-module-staging.tar.gz -C rom-module-staging .
+          # Official Android 14 dtbo tool; verify source blob before use.
+          curl -fL --retry 3 https://raw.githubusercontent.com/LineageOS/android_system_libufdt/7939f8d3355e78531083e1f39a34a227e98d8a15/utils/src/mkdtboimg.py -o "$RUNNER_TEMP/mkdtboimg.py"
+          test "$(git hash-object "$RUNNER_TEMP/mkdtboimg.py")" = 2634c76a1b56e8ded4286fb8aad2ebef9dda4ac8
+          mapfile -t dtbs < <(find out/arch/arm64/boot/dts -type f -name "*.dtb" | LC_ALL=C sort)
+          mapfile -t dtbos < <(find out/arch/arm64/boot/dts -type f -name "*.dtbo" | LC_ALL=C sort)
+          test "${#dtbs[@]}" -gt 0
+          test "${#dtbos[@]}" -gt 0
+          cat "${dtbs[@]}" > artifacts/dtb.img
+          python3 "$RUNNER_TEMP/mkdtboimg.py" create artifacts/dtbo.img --page_size=4096 "${dtbos[@]}"
+          python3 "$RUNNER_TEMP/mkdtboimg.py" dump artifacts/dtbo.img > logs/dtbo-layout.txt
+          test "$(stat -c %s artifacts/dtbo.img)" -le 25165824
+          test "$(stat -c %s artifacts/dtb.img)" -le 100663296
+          cp logs/rom-config-before-root.txt logs/dtbo-layout.txt logs/rom-module-staging-report.txt artifacts/
           (cd artifacts && sha256sum * > SHA256SUMS.txt)
           echo 'Static ARM64 kernel validation passed.' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload kernel artifacts
