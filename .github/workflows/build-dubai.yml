@@ -21,8 +21,6 @@ jobs:
       SUBARCH: arm64
       KBUILD_BUILD_USER: github
       KBUILD_BUILD_HOST: actions
-      APT_CACHE_DIR: ${{ runner.temp }}/dubai-apt
-      CCACHE_DIR: ${{ runner.temp }}/dubai-ccache
       CCACHE_BASEDIR: ${{ github.workspace }}
       CCACHE_COMPILERCHECK: content
       CCACHE_MAXSIZE: 3G
@@ -37,6 +35,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          APT_CACHE_DIR="$RUNNER_TEMP/dubai-apt"
+          CCACHE_DIR="$RUNNER_TEMP/dubai-ccache"
+          echo "APT_CACHE_DIR=$APT_CACHE_DIR" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$CCACHE_DIR" >> "$GITHUB_ENV"
           mkdir -p "$APT_CACHE_DIR" "$CCACHE_DIR" "$RUNNER_TEMP/android-clang"
           echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
       - name: Restore apt package cache
