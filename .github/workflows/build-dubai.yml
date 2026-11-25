@@ -185,6 +185,9 @@ jobs:
           make -j"$(nproc)" "${opts[@]}" security/selinux/ 2>&1 | tee logs/selinux-preflight.log
           test -s out/security/selinux/flask.h
           test -s out/security/selinux/av_permissions.h
+          # init/version.o generates compile.h via the kernel\x27s own mkcompile_h rule.
+          make -j"$(nproc)" "${opts[@]}" init/version.o 2>&1 | tee logs/compile-header.log
+          test -s out/include/generated/compile.h
           if ! make -k -j"$(nproc)" "${opts[@]}" drivers/kernelsu/ 2>&1 | tee logs/bakasu-preflight.log; then
             {
               echo '### BakaSU compatibility preflight failed'
