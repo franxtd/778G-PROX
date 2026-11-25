@@ -63,17 +63,36 @@ static irqreturn_t etr_handler(int irq, void *data)
 
 }
 
-static void tmc_etr_flush_bytes(loff_t *ppos, size_t bytes, size_t *len)
+static ssize_t tmc_etr_flush_bytes(loff_t pos, size_t len, char **bufp)
 {
-	uint32_t rwp = 0;
-	dma_addr_t paddr = tmcdrvdata->sysfs_buf->hwaddr;
+	struct etr_buf *etr_buf = tmcdrvdata->sysfs_buf;
+	ssize_t write_offset;
+	size_t available;
+	u64 rwp;
 
-	rwp = readl_relaxed(tmcdrvdata->base + TMC_RWP);
+	if (!etr_buf || pos < 0 || pos >= etr_buf->size)
+		return -EINVAL;
 
-	if (rwp >= (paddr + *ppos)) {
-		if (bytes > (rwp - paddr - *ppos))
-			*len = rwp - paddr - *ppos;
+	if (etr_buf->mode == ETR_MODE_ETR_SG) {
+		write_offset = tmc_sg_get_rwp_offset(tmcdrvdata);
+		if (write_offset < 0)
+			return write_offset;
+	} else {
+		rwp = tmc_read_rwp(tmcdrvdata);
+		if (rwp < etr_buf->hwaddr || rwp - etr_buf->hwaddr > (u64)etr_buf->size)
+			return -EINVAL;
+		write_offset = rwp - etr_buf->hwaddr;
 	}
+
+	if (write_offset == etr_buf->size)
+		write_offset = 0;
+
+	/* A wrapped tail is read up to the end of the buffer first. */
+	available = (write_offset < pos ? etr_buf->size : write_offset) - pos;
+	if (!available)
+		return -EINVAL;
+
+	return tmc_etr_buf_get_data(etr_buf, pos, min(len, available), bufp);
 }
 
 static ssize_t tmc_etr_byte_cntr_read(struct file *fp, char __user *data,
@@ -111,12 +130,15 @@ static ssize_t tmc_etr_byte_cntr_read(struct file *fp, char __user *data,
 
 	} else {
 		if (!atomic_read(&byte_cntr_data->irq_cnt)) {
-			tmc_etr_flush_bytes(ppos, byte_cntr_data->block_size,
-						  &len);
-			if (!len) {
-				ret = -EINVAL;
+			ssize_t actual;
+
+			len = min_t(size_t, len, byte_cntr_data->block_size);
+			actual = tmc_etr_flush_bytes(*ppos, len, &bufp);
+			if (actual <= 0) {
+				ret = actual;
 				goto err0;
 			}
+			len = actual;
 		} else {
 			tmc_etr_read_bytes(byte_cntr_data, ppos,
 						   byte_cntr_data->block_size,
