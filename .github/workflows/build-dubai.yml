@@ -1,0 +1,279 @@
+name: Dubai LineageOS 21 Android 14 - BakaSU (AOSP Clang r614150)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ci/dubai-lineage21-bakasu]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dubai-kernel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      ARCH: arm64
+      SUBARCH: arm64
+      KBUILD_BUILD_USER: github
+      KBUILD_BUILD_HOST: actions
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 3G
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Prepare tool cache
+        id: tool-cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          APT_CACHE_DIR="$RUNNER_TEMP/dubai-apt"
+          CCACHE_DIR="$RUNNER_TEMP/dubai-ccache"
+          echo "APT_CACHE_DIR=$APT_CACHE_DIR" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$CCACHE_DIR" >> "$GITHUB_ENV"
+          mkdir -p "$APT_CACHE_DIR" "$CCACHE_DIR" "$RUNNER_TEMP/android-clang"
+          echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: Restore apt package cache
+        id: apt-cache
+        uses: actions/cache/restore@v6.1.0
+        continue-on-error: true
+        with:
+          path: ${{ env.APT_CACHE_DIR }}/*.deb
+          key: dubai-apt-v1-ubuntu24-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
+          restore-keys: |
+            dubai-apt-v1-ubuntu24-${{ runner.arch }}-
+      - name: Install build dependencies
+        id: deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$APT_CACHE_DIR/partial"
+          sudo chown _apt:root "$APT_CACHE_DIR/partial"
+          sudo apt-get update
+          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR/" -o APT::Keep-Downloaded-Packages=true -o Binary::apt-get::APT::Keep-Downloaded-Packages=true install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi device-tree-compiler cpio rsync kmod python3 curl ccache
+          sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"
+          if find "$APT_CACHE_DIR" -maxdepth 1 -type f -name '*.deb' -print -quit | grep -q .; then
+            echo "has-debs=true" >> "$GITHUB_OUTPUT"
+          fi
+          df -h
+      - name: Save apt package cache
+        if: steps.apt-cache.outputs.cache-hit != 'true' && steps.deps.outputs.has-debs == 'true'
+        uses: actions/cache/save@v6.1.0
+        continue-on-error: true
+        with:
+          path: ${{ env.APT_CACHE_DIR }}/*.deb
+          key: dubai-apt-v1-ubuntu24-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
+      - name: Restore Android Clang toolchain
+        id: clang-cache
+        uses: actions/cache/restore@v6.1.0
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/android-clang
+          key: dubai-aosp-toolchain-v2-ubuntu24-${{ runner.arch }}-clang-r614150-16fae8ef
+      - name: Set up pinned AOSP Clang r614150
+        id: compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          tc="$RUNNER_TEMP/android-clang"
+          revision=16fae8ef5b856b1d3e02a55274e4327c5842bb34
+          valid_toolchain() {
+            test -f "$tc/.aosp-revision" && test "$(cat "$tc/.aosp-revision")" = "$revision" || return 1
+            for tool in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-readelf llvm-strip; do
+              test -x "$tc/bin/$tool" || return 1
+            done
+            "$tc/bin/clang" --version
+          }
+          if ! valid_toolchain; then
+            rm -rf "$tc"
+            mkdir -p "$tc"
+            archive="$RUNNER_TEMP/aosp-clang.tar.gz"
+            url="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/$revision/clang-r614150.tar.gz"
+            curl -fL --retry 3 --connect-timeout 30 --max-time 1200 "$url" -o "$archive"
+            tar -xzf "$archive" -C "$tc"
+            rm -f "$archive"
+            printf "%s\n" "$revision" > "$tc/.aosp-revision"
+          fi
+          mkdir -p logs
+          valid_toolchain 2>&1 | tee logs/aosp-toolchain.log
+          echo "$tc/bin" >> "$GITHUB_PATH"
+          echo "LLVM_SUFFIX=" >> "$GITHUB_ENV"
+          echo "android-ready=true" >> "$GITHUB_OUTPUT"
+          compiler_hash="$(sha256sum "$tc/bin/clang" | cut -d ' ' -f1)"
+          echo "fingerprint=$compiler_hash" >> "$GITHUB_OUTPUT"
+      - name: Save Android Clang toolchain
+        if: steps.clang-cache.outputs.cache-hit != 'true' && steps.compiler.outputs.android-ready == 'true'
+        uses: actions/cache/save@v6.1.0
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/android-clang
+          key: dubai-aosp-toolchain-v2-ubuntu24-${{ runner.arch }}-clang-r614150-16fae8ef
+      - name: Restore ccache
+        id: ccache-restore
+        uses: actions/cache/restore@v6.1.0
+        continue-on-error: true
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: dubai-aosp-ccache-v2-ubuntu24-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dubai-aosp-ccache-v2-ubuntu24-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-
+      - name: Initialize ccache
+        id: ccache-init
+        shell: bash
+        run: |
+          set -euo pipefail
+          ccache --version
+          ccache --max-size=3G
+          ccache --zero-stats
+          ccache --show-stats
+      - name: Integrate pinned BakaSU (Built-In)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          git clone --branch main --single-branch https://github.com/Baka-SU/BakaSU.git KernelSU
+          git -C KernelSU checkout --detach 57b2db6076f439cfd489f14576444e8f0f2f0a25
+          test "$(git -C KernelSU rev-parse HEAD)" = 57b2db6076f439cfd489f14576444e8f0f2f0a25
+          test -f KernelSU/kernel/Kconfig
+          test ! -e drivers/kernelsu
+          ln -s ../KernelSU/kernel drivers/kernelsu
+          printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+          sed -i '/^endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          test -e drivers/kernelsu/Kconfig
+          grep -Fq 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          grep -Fq 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile
+          git -C KernelSU rev-parse HEAD | tee logs/bakasu-revision.txt
+          test -f KernelSU/kernel/Kbuild
+          test -f KernelSU/kernel/tools/manual_hook_check.mk
+
+      - name: Configure and compile for Motorola Edge 30 (dubai)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out logs
+          clang${LLVM_SUFFIX} --version | tee logs/compiler.txt
+          # LineageOS 21 BoardConfigCommon.mk then Dubai BoardConfig.mk.
+          cfg=arch/arm64/configs/vendor
+          sha256sum "$cfg/lahaina-qgki_defconfig" "$cfg/lineage_moto-lahaina.config" "$cfg/lineage_dubai.config" | tee logs/defconfig-sha256.txt
+          test "$(git hash-object "$cfg/lahaina-qgki_defconfig")" = 09668a261513a2b3587c05b8dd07ad25b8ce464e
+          test "$(git hash-object "$cfg/lineage_moto-lahaina.config")" = 8eb407aaadcbaa74560a6fa6582f5675f97507fe
+          test "$(git hash-object "$cfg/lineage_dubai.config")" = 0d2b016bb57f504e6c343e8747177377e87ee83d
+          scripts/kconfig/merge_config.sh -m -O out "$cfg/lahaina-qgki_defconfig" "$cfg/lineage_moto-lahaina.config" "$cfg/lineage_dubai.config" 2>&1 | tee logs/config-merge.log
+          scripts/config --file out/.config --enable KSU --enable KPROBES --enable KALLSYMS_ALL --enable EXT4_FS --enable HEADERS_INSTALL --enable KSU_MANUAL_HOOK --enable KSU_MANUAL_HOOK_AUTO_SETUID_HOOK --enable KSU_MANUAL_HOOK_AUTO_INITRC_HOOK --enable KSU_MANUAL_HOOK_AUTO_INPUT_HOOK --disable KSU_TRACEPOINT_HOOK --disable KSU_SUSFS --disable KSU_DEBUG --disable KSU_TOOLKIT_SUPPORT --disable KSU_DISABLE_MANAGER --disable KSU_DISABLE_POLICY
+          opts=(O=out LLVM=1 LLVM_IAS=1
+            "CC=ccache clang${LLVM_SUFFIX}" LD=ld.lld${LLVM_SUFFIX}
+            AR=llvm-ar${LLVM_SUFFIX} NM=llvm-nm${LLVM_SUFFIX}
+            OBJCOPY=llvm-objcopy${LLVM_SUFFIX} OBJDUMP=llvm-objdump${LLVM_SUFFIX}
+            READELF=llvm-readelf${LLVM_SUFFIX} STRIP=llvm-strip${LLVM_SUFFIX}
+            HOSTCC=clang${LLVM_SUFFIX} HOSTCXX=clang++${LLVM_SUFFIX}
+            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+            CLANG_TRIPLE=aarch64-linux-gnu-)
+          make "${opts[@]}" olddefconfig 2>&1 | tee logs/config.log
+          cp out/.config logs/kernel.config
+          grep -qx 'CONFIG_ARM64=y' out/.config
+          grep -qx 'CONFIG_ARCH_YUPIK=y' out/.config
+          for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_MANUAL_HOOK KSU_MANUAL_HOOK_AUTO_SETUID_HOOK KSU_MANUAL_HOOK_AUTO_INITRC_HOOK KSU_MANUAL_HOOK_AUTO_INPUT_HOOK SECURITY_SELINUX CFI_CLANG LTO_CLANG THINLTO MODULES MODVERSIONS; do
+            grep -qx "CONFIG_$symbol=y" out/.config
+          done
+          grep -qx '# CONFIG_KSU_SUSFS is not set' out/.config
+          for symbol in INPUT_TOUCHSCREEN_MMI TOUCHSCREEN_GOODIX_BRL RBS_FOD_MMI QCA_CLD_WLAN; do
+            grep -qx "CONFIG_$symbol=m" out/.config
+          done
+          make -j"$(nproc)" "${opts[@]}" headers_install 2>&1 | tee logs/headers.log
+          test -s out/usr/include/linux/unistd.h
+          # Generate SELinux headers before compiling the built-in root driver.
+          make -j"$(nproc)" "${opts[@]}" security/selinux/ 2>&1 | tee logs/selinux-preflight.log
+          test -s out/security/selinux/flask.h
+          test -s out/security/selinux/av_permissions.h
+          # init/version.o generates compile.h via the kernel\x27s own mkcompile_h rule.
+          make -j"$(nproc)" "${opts[@]}" init/version.o 2>&1 | tee logs/compile-header.log
+          test -s out/include/generated/compile.h
+          if ! make -k -j"$(nproc)" "${opts[@]}" drivers/kernelsu/ 2>&1 | tee logs/bakasu-preflight.log; then
+            {
+              echo '### BakaSU compatibility preflight failed'
+              echo '```text'
+              grep -E 'error:|undefined reference|LLVM ERROR' logs/bakasu-preflight.log | head -n 100 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          make -j"$(nproc)" "${opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
+      - name: Report ccache statistics
+        if: ${{ !cancelled() && steps.ccache-init.outcome == 'success' }}
+        shell: bash
+        run: |
+          mkdir -p logs
+          ccache --show-stats | tee logs/ccache.txt
+          {
+            echo '### Compilation cache'
+            echo
+            sed 's/^/    /' logs/ccache.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save ccache (including partial builds)
+        if: ${{ !cancelled() && steps.ccache-init.outcome == 'success' && steps.ccache-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v6.1.0
+        continue-on-error: true
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: dubai-aosp-ccache-v2-ubuntu24-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Verify kernel artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s out/arch/arm64/boot/Image
+          test -s out/vmlinux
+          test -s out/Module.symvers
+          readelf -h out/vmlinux | tee logs/elf-header.txt
+          grep -q AArch64 logs/elf-header.txt
+          python3 -c 'from pathlib import Path; p=Path("out/arch/arm64/boot/Image"); f=p.open("rb"); f.seek(56); assert f.read(4)==b"ARM\x64", "Invalid ARM64 Image magic"'
+          mkdir -p artifacts
+          cp out/arch/arm64/boot/Image artifacts/
+          cp out/.config artifacts/kernel.config
+          cp out/Module.symvers out/System.map artifacts/
+          find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -print | sort | tee logs/device-trees.txt
+          test -s logs/device-trees.txt
+          tar -czf artifacts/device-trees.tar.gz -T logs/device-trees.txt
+          find out -type f -name '*.ko' -print | sort | tee logs/modules.txt
+          test -s logs/modules.txt
+          # Compare against official LOS 21 lists; do not guess module aliases.
+          cat ci/lineage21/modules.load ci/lineage21/modules.load.recovery | sed '/^\s*$/d' | sort -u > logs/expected-modules.txt
+          sed 's|.*/||' logs/modules.txt | sort -u > logs/compiled-modules.txt
+          comm -23 logs/expected-modules.txt logs/compiled-modules.txt | tee logs/missing-modules.txt
+          while IFS= read -r ko; do
+            printf "%s\t" "$ko"
+            modinfo -F vermagic "$ko"
+          done < logs/modules.txt > logs/modules-vermagic.txt
+          cp out/include/config/kernel.release artifacts/kernel.release
+          cp logs/{expected-modules,compiled-modules,missing-modules,modules-vermagic,device-trees,defconfig-sha256}.txt artifacts/
+          if test -s logs/missing-modules.txt; then
+            echo '::warning::LineageOS 21 module manifest differs from built module inventory; no installer is published.'
+            echo '### Missing modules from official LineageOS 21 manifest' >> "$GITHUB_STEP_SUMMARY"
+            sed 's/^/    /' logs/missing-modules.txt >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo 'Boot-only ZIP intentionally withheld until installed ROM module ABI is checked.' >> "$GITHUB_STEP_SUMMARY"
+          tar -czf artifacts/modules.tar.gz -T logs/modules.txt
+          (cd artifacts && sha256sum * > SHA256SUMS.txt)
+          echo 'Static ARM64 kernel validation passed.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload kernel artifacts
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: dubai-lineage21-bakasu-kernel-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: dubai-build-logs-${{ github.sha }}
+          path: logs/
+          if-no-files-found: warn
+          retention-days: 7

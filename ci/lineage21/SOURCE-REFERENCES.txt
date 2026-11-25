@@ -1,0 +1,6 @@
+Kernel: https://github.com/LineageOS/android_kernel_motorola_sm7325/tree/4e6e8fdd44cc8d53a2ee6a80eac9594358f21c44
+Common BoardConfig: https://github.com/LineageOS/android_device_motorola_sm7325-common/blob/c117c2ec850d01bf8d056e3052846645d523bb88/BoardConfigCommon.mk
+Dubai BoardConfig and module lists: https://github.com/LineageOS/android_device_motorola_dubai/tree/2e3a0cda79ef7a1cf9dff430cfaa83cea1b46551
+BakaSU revision: 57b2db6076f439cfd489f14576444e8f0f2f0a25
+AOSP Clang r614150 is the previously verified compiler, not a claim of the exact compiler used by the installed ROM.
+No flashable installer until matching installed ROM ABI has been checked.
