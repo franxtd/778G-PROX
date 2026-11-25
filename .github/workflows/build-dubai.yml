@@ -1,4 +1,4 @@
-name: Dubai LineageOS 21 Android 14 - BakaSU (AOSP Clang r614150)
+name: Dubai LineageOS 21 20241227 Linux 5.4.286 - BakaSU (AOSP Clang r614150)
 
 on:
   workflow_dispatch:
@@ -28,8 +28,16 @@ jobs:
       - name: Checkout kernel
         uses: actions/checkout@v7.0.1
         with:
+          ref: 88a56772b0b5f267909392a6b172100cd179bdb6
           fetch-depth: 1
           persist-credentials: false
+      - name: Verify exact kernel source checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 88a56772b0b5f267909392a6b172100cd179bdb6
+          mkdir -p logs
+          git rev-parse HEAD | tee logs/kernel-source-commit.txt
       - name: Prepare tool cache
         id: tool-cache
         shell: bash
@@ -164,11 +172,12 @@ jobs:
           clang${LLVM_SUFFIX} --target=aarch64-linux-gnu -fintegrated-as -Werror -Waddress-of-packed-member -c -x c /dev/null -o "$RUNNER_TEMP/clang-probe.o"
           rm -f "$RUNNER_TEMP/clang-probe.o"
           # LineageOS 21 BoardConfigCommon.mk then Dubai BoardConfig.mk.
+          test "$(make -s kernelversion)" = 5.4.286
           cfg=arch/arm64/configs/vendor
           sha256sum "$cfg/lahaina-qgki_defconfig" "$cfg/lineage_moto-lahaina.config" "$cfg/lineage_dubai.config" | tee logs/defconfig-sha256.txt
-          test "$(git hash-object "$cfg/lahaina-qgki_defconfig")" = 09668a261513a2b3587c05b8dd07ad25b8ce464e
+          test "$(git hash-object "$cfg/lahaina-qgki_defconfig")" = 6334983793948e4850bbf17d55d65fb3adb8adcf
           test "$(git hash-object "$cfg/lineage_moto-lahaina.config")" = 8eb407aaadcbaa74560a6fa6582f5675f97507fe
-          test "$(git hash-object "$cfg/lineage_dubai.config")" = 0d2b016bb57f504e6c343e8747177377e87ee83d
+          test "$(git hash-object "$cfg/lineage_dubai.config")" = eb86e411db51d0e5063333738a4583828cb98bdc
           opts=(O=out LLVM=1 LLVM_IAS=1
             "CC=ccache clang${LLVM_SUFFIX}"
             LD=ld.lld${LLVM_SUFFIX} AR=llvm-ar${LLVM_SUFFIX} NM=llvm-nm${LLVM_SUFFIX}
@@ -188,7 +197,7 @@ jobs:
             grep -qx "CONFIG_$symbol=y" out/.config
           done
           grep -qx '# CONFIG_KSU_SUSFS is not set' out/.config
-          for symbol in INPUT_TOUCHSCREEN_MMI TOUCHSCREEN_GOODIX_BRL RBS_FOD_MMI QCA_CLD_WLAN; do
+          for symbol in INPUT_TOUCHSCREEN_MMI TOUCHSCREEN_GOODIX_BRL RBS_FPS_MMI QCA_CLD_WLAN MOTO_F_USBNET WATCHDOGTEST SND_SOC_CS35L41 SND_SOC_CS35L45 ZRAM; do
             grep -qx "CONFIG_$symbol=m" out/.config
           done
           make -j"$(nproc)" "${opts[@]}" headers_install 2>&1 | tee logs/headers.log
@@ -257,6 +266,13 @@ jobs:
           cat ci/lineage21/modules.load ci/lineage21/modules.load.recovery | sed '/^\s*$/d' | sort -u > logs/expected-modules.txt
           sed 's|.*/||' logs/modules.txt | sort -u > logs/compiled-modules.txt
           comm -23 logs/expected-modules.txt logs/compiled-modules.txt | tee logs/missing-modules.txt
+          LC_ALL=C sort -u ci/lineage21/installed-rom-modules.txt > logs/installed-rom-modules.txt
+          LC_ALL=C sort -u logs/compiled-modules.txt > logs/compiled-modules-c.txt
+          comm -23 logs/installed-rom-modules.txt logs/compiled-modules-c.txt | tee logs/missing-installed-rom-modules.txt
+          if test -s logs/missing-installed-rom-modules.txt; then
+            echo "::warning::Modules listed on the installed December 2024 ROM are missing; do not assume boot compatibility."
+          fi
+          cp logs/{installed-rom-modules,missing-installed-rom-modules}.txt artifacts/
           while IFS= read -r ko; do
             printf "%s\t" "$ko"
             modinfo -F vermagic "$ko"
@@ -313,7 +329,7 @@ jobs:
           test -s "$ak/tools/ak3-core.sh"
           test -s "$ak/Image"
           sh -n "$ak/anykernel.sh"
-          name="FranProx-Dubai-LOS21-BakaSU-AnyKernel3-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
+          name="FranProx-Dubai-LOS21-5.4.286-BakaSU-AnyKernel3-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
           output="$GITHUB_WORKSPACE/packages/$name"
           (cd "$ak" && zip -q -r -9 -y "$output" .)
           unzip -t "$output" | tee logs/anykernel-zip-check.txt
