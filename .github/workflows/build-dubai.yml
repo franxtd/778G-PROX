@@ -1,9 +1,9 @@
-name: Build and test Dubai kernel
+name: Build and test Dubai kernel (Proton Clang)
 
 on:
   workflow_dispatch:
   push:
-    branches: [lineage-24.0, ci/dubai-kernel]
+    branches: [ci/franprox-proton]
 
 permissions:
   contents: read
@@ -39,7 +39,7 @@ jobs:
           CCACHE_DIR="$RUNNER_TEMP/dubai-ccache"
           echo "APT_CACHE_DIR=$APT_CACHE_DIR" >> "$GITHUB_ENV"
           echo "CCACHE_DIR=$CCACHE_DIR" >> "$GITHUB_ENV"
-          mkdir -p "$APT_CACHE_DIR" "$CCACHE_DIR" "$RUNNER_TEMP/android-clang"
+          mkdir -p "$APT_CACHE_DIR" "$CCACHE_DIR" "$RUNNER_TEMP/proton-clang"
           echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
       - name: Restore apt package cache
         id: apt-cache
@@ -47,9 +47,9 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ env.APT_CACHE_DIR }}/*.deb
-          key: dubai-apt-v1-ubuntu22-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
+          key: dubai-proton-apt-v1-ubuntu22-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
           restore-keys: |
-            dubai-apt-v1-ubuntu22-${{ runner.arch }}-
+            dubai-proton-apt-v1-ubuntu22-${{ runner.arch }}-
       - name: Install build dependencies
         id: deps
         shell: bash
@@ -58,7 +58,7 @@ jobs:
           mkdir -p "$APT_CACHE_DIR/partial"
           sudo chown _apt:root "$APT_CACHE_DIR/partial"
           sudo apt-get update
-          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR/" -o APT::Keep-Downloaded-Packages=true -o Binary::apt-get::APT::Keep-Downloaded-Packages=true install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang-14 lld-14 llvm-14 device-tree-compiler cpio rsync kmod python3 curl ccache
+          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR/" -o APT::Keep-Downloaded-Packages=true -o Binary::apt-get::APT::Keep-Downloaded-Packages=true install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi device-tree-compiler cpio rsync kmod python3 curl ccache
           sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"
           if find "$APT_CACHE_DIR" -maxdepth 1 -type f -name '*.deb' -print -quit | grep -q .; then
             echo "has-debs=true" >> "$GITHUB_OUTPUT"
@@ -70,21 +70,23 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ env.APT_CACHE_DIR }}/*.deb
-          key: dubai-apt-v1-ubuntu22-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
-      - name: Restore Android Clang toolchain
+          key: dubai-proton-apt-v1-ubuntu22-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
+      - name: Restore Proton Clang toolchain
         id: clang-cache
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
-          path: ${{ runner.temp }}/android-clang
-          key: dubai-toolchain-v1-linux-${{ runner.arch }}-android12-clang-r416183b
-      - name: Set up compiler
+          path: ${{ runner.temp }}/proton-clang
+          key: dubai-toolchain-v1-linux-${{ runner.arch }}-proton-9fb011b183fe7e69b04b873ef6533b4b077e3c5e
+      - name: Set up pinned Proton Clang
         id: compiler
         shell: bash
         run: |
           set -euo pipefail
-          tc="$RUNNER_TEMP/android-clang"
+          tc="$RUNNER_TEMP/proton-clang"
+          revision=9fb011b183fe7e69b04b873ef6533b4b077e3c5e
           valid_toolchain() {
+            test -f "$tc/.proton-revision" && test "$(cat "$tc/.proton-revision")" = "$revision" || return 1
             for tool in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-readelf llvm-strip; do
               test -x "$tc/bin/$tool" || return 1
             done
@@ -93,42 +95,36 @@ jobs:
           if ! valid_toolchain; then
             rm -rf "$tc"
             mkdir -p "$tc"
-            url="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz"
-            if curl -fL --retry 2 --connect-timeout 20 --max-time 300 "$url" -o "$RUNNER_TEMP/clang.tar.gz" && tar -xzf "$RUNNER_TEMP/clang.tar.gz" -C "$tc" && valid_toolchain; then
-              echo "Android Clang downloaded."
-            else
-              rm -rf "$tc"
-              echo "::warning::Android clang-r416183b unavailable; using Ubuntu clang-14 for CI only."
-            fi
-            rm -f "$RUNNER_TEMP/clang.tar.gz"
+            git -C "$tc" init -q
+            git -C "$tc" remote add origin https://github.com/kdrag0n/proton-clang.git
+            git -C "$tc" fetch --depth=1 origin "$revision"
+            git -C "$tc" checkout --detach FETCH_HEAD
+            test "$(git -C "$tc" rev-parse HEAD)" = "$revision"
+            rm -rf "$tc/.git"
+            printf '%s\n' "$revision" > "$tc/.proton-revision"
           fi
-          if valid_toolchain; then
-            echo "$tc/bin" >> "$GITHUB_PATH"
-            echo "LLVM_SUFFIX=" >> "$GITHUB_ENV"
-            echo "android-ready=true" >> "$GITHUB_OUTPUT"
-            compiler="$tc/bin/clang"
-          else
-            echo "LLVM_SUFFIX=-14" >> "$GITHUB_ENV"
-            compiler="$(command -v clang-14)"
-          fi
-          compiler_hash="$(sha256sum "$compiler" | cut -d ' ' -f1)"
+          valid_toolchain
+          echo "$tc/bin" >> "$GITHUB_PATH"
+          echo "LLVM_SUFFIX=" >> "$GITHUB_ENV"
+          echo "proton-ready=true" >> "$GITHUB_OUTPUT"
+          compiler_hash="$(sha256sum "$tc/bin/clang" | cut -d ' ' -f1)"
           echo "fingerprint=$compiler_hash" >> "$GITHUB_OUTPUT"
-      - name: Save Android Clang toolchain
-        if: steps.clang-cache.outputs.cache-hit != 'true' && steps.compiler.outputs.android-ready == 'true'
+      - name: Save Proton Clang toolchain
+        if: steps.clang-cache.outputs.cache-hit != 'true' && steps.compiler.outputs.proton-ready == 'true'
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
-          path: ${{ runner.temp }}/android-clang
-          key: dubai-toolchain-v1-linux-${{ runner.arch }}-android12-clang-r416183b
+          path: ${{ runner.temp }}/proton-clang
+          key: dubai-toolchain-v1-linux-${{ runner.arch }}-proton-9fb011b183fe7e69b04b873ef6533b4b077e3c5e
       - name: Restore ccache
         id: ccache-restore
         uses: actions/cache/restore@v4
         continue-on-error: true
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: dubai-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: dubai-proton-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            dubai-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-
+            dubai-proton-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-
       - name: Initialize ccache
         id: ccache-init
         shell: bash
@@ -176,7 +172,7 @@ jobs:
         continue-on-error: true
         with:
           path: ${{ env.CCACHE_DIR }}
-          key: dubai-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: dubai-proton-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Verify kernel artifacts
         shell: bash
         run: |
