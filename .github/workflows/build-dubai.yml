@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: dubai-kernel-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -21,31 +21,121 @@ jobs:
       SUBARCH: arm64
       KBUILD_BUILD_USER: github
       KBUILD_BUILD_HOST: actions
+      APT_CACHE_DIR: ${{ runner.temp }}/dubai-apt
+      CCACHE_DIR: ${{ runner.temp }}/dubai-ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 3G
     steps:
       - name: Checkout kernel
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Install build dependencies
+      - name: Prepare tool cache
+        id: tool-cache
+        shell: bash
         run: |
+          set -euo pipefail
+          mkdir -p "$APT_CACHE_DIR" "$CCACHE_DIR" "$RUNNER_TEMP/android-clang"
+          echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+      - name: Restore apt package cache
+        id: apt-cache
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: ${{ env.APT_CACHE_DIR }}/*.deb
+          key: dubai-apt-v1-ubuntu22-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
+          restore-keys: |
+            dubai-apt-v1-ubuntu22-${{ runner.arch }}-
+      - name: Install build dependencies
+        id: deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$APT_CACHE_DIR/partial"
+          sudo chown _apt:root "$APT_CACHE_DIR/partial"
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang-14 lld-14 llvm-14 device-tree-compiler cpio rsync kmod python3 curl
+          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR/" -o APT::Keep-Downloaded-Packages=true -o Binary::apt-get::APT::Keep-Downloaded-Packages=true install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang-14 lld-14 llvm-14 device-tree-compiler cpio rsync kmod python3 curl ccache
+          sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"
+          if find "$APT_CACHE_DIR" -maxdepth 1 -type f -name '*.deb' -print -quit | grep -q .; then
+            echo "has-debs=true" >> "$GITHUB_OUTPUT"
+          fi
           df -h
+      - name: Save apt package cache
+        if: steps.apt-cache.outputs.cache-hit != 'true' && steps.deps.outputs.has-debs == 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: ${{ env.APT_CACHE_DIR }}/*.deb
+          key: dubai-apt-v1-ubuntu22-${{ runner.arch }}-${{ steps.tool-cache.outputs.week }}
+      - name: Restore Android Clang toolchain
+        id: clang-cache
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/android-clang
+          key: dubai-toolchain-v1-linux-${{ runner.arch }}-android12-clang-r416183b
       - name: Set up compiler
+        id: compiler
         shell: bash
         run: |
           set -euo pipefail
           tc="$RUNNER_TEMP/android-clang"
-          mkdir -p "$tc"
-          url="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz"
-          if curl -fL --retry 2 --connect-timeout 20 --max-time 300 "$url" -o "$RUNNER_TEMP/clang.tar.gz" && tar -xzf "$RUNNER_TEMP/clang.tar.gz" -C "$tc" && "$tc/bin/clang" --version; then
+          valid_toolchain() {
+            for tool in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-readelf llvm-strip; do
+              test -x "$tc/bin/$tool" || return 1
+            done
+            "$tc/bin/clang" --version
+          }
+          if ! valid_toolchain; then
+            rm -rf "$tc"
+            mkdir -p "$tc"
+            url="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz"
+            if curl -fL --retry 2 --connect-timeout 20 --max-time 300 "$url" -o "$RUNNER_TEMP/clang.tar.gz" && tar -xzf "$RUNNER_TEMP/clang.tar.gz" -C "$tc" && valid_toolchain; then
+              echo "Android Clang downloaded."
+            else
+              rm -rf "$tc"
+              echo "::warning::Android clang-r416183b unavailable; using Ubuntu clang-14 for CI only."
+            fi
+            rm -f "$RUNNER_TEMP/clang.tar.gz"
+          fi
+          if valid_toolchain; then
             echo "$tc/bin" >> "$GITHUB_PATH"
             echo "LLVM_SUFFIX=" >> "$GITHUB_ENV"
+            echo "android-ready=true" >> "$GITHUB_OUTPUT"
+            compiler="$tc/bin/clang"
           else
-            echo "::warning::Android clang-r416183b unavailable; using Ubuntu clang-14 for CI only."
             echo "LLVM_SUFFIX=-14" >> "$GITHUB_ENV"
+            compiler="$(command -v clang-14)"
           fi
+          compiler_hash="$(sha256sum "$compiler" | cut -d ' ' -f1)"
+          echo "fingerprint=$compiler_hash" >> "$GITHUB_OUTPUT"
+      - name: Save Android Clang toolchain
+        if: steps.clang-cache.outputs.cache-hit != 'true' && steps.compiler.outputs.android-ready == 'true'
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/android-clang
+          key: dubai-toolchain-v1-linux-${{ runner.arch }}-android12-clang-r416183b
+      - name: Restore ccache
+        id: ccache-restore
+        uses: actions/cache/restore@v4
+        continue-on-error: true
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: dubai-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            dubai-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-
+      - name: Initialize ccache
+        id: ccache-init
+        shell: bash
+        run: |
+          set -euo pipefail
+          ccache --version
+          ccache --max-size=3G
+          ccache --zero-stats
+          ccache --show-stats
       - name: Configure and compile for Motorola Edge 30 (dubai)
         shell: bash
         run: |
@@ -55,7 +145,7 @@ jobs:
           cfg=arch/arm64/configs/vendor
           scripts/kconfig/merge_config.sh -m -O out "$cfg/lahaina-qgki_defconfig" "$cfg/lineage_moto-lahaina.config" "$cfg/lineage_dubai.config" 2>&1 | tee logs/config-merge.log
           opts=(O=out LLVM=1 LLVM_IAS=1
-            CC=clang${LLVM_SUFFIX} LD=ld.lld${LLVM_SUFFIX}
+            "CC=ccache clang${LLVM_SUFFIX}" LD=ld.lld${LLVM_SUFFIX}
             AR=llvm-ar${LLVM_SUFFIX} NM=llvm-nm${LLVM_SUFFIX}
             OBJCOPY=llvm-objcopy${LLVM_SUFFIX} OBJDUMP=llvm-objdump${LLVM_SUFFIX}
             READELF=llvm-readelf${LLVM_SUFFIX} STRIP=llvm-strip${LLVM_SUFFIX}
@@ -67,6 +157,24 @@ jobs:
           grep -qx 'CONFIG_ARM64=y' out/.config
           grep -qx 'CONFIG_ARCH_YUPIK=y' out/.config
           make -j"$(nproc)" "${opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
+      - name: Report ccache statistics
+        if: ${{ !cancelled() && steps.ccache-init.outcome == 'success' }}
+        shell: bash
+        run: |
+          mkdir -p logs
+          ccache --show-stats | tee logs/ccache.txt
+          {
+            echo '### Compilation cache'
+            echo
+            sed 's/^/    /' logs/ccache.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Save ccache (including partial builds)
+        if: ${{ !cancelled() && steps.ccache-init.outcome == 'success' && steps.ccache-restore.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: dubai-ccache-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.compiler.outputs.fingerprint }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Verify kernel artifacts
         shell: bash
         run: |
