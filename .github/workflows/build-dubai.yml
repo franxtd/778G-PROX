@@ -169,6 +169,14 @@ jobs:
                   s = p.read_text()
                   assert s.count("TWA_RESUME") == 1, name
                   p.write_text(s.replace("TWA_RESUME", "true"))
+          # Explicit task lifetime API declarations, not transitive includes.
+          for name in ("manager/dynamic_manager.c", "policy/allowlist.c"):
+              p = root / name
+              source = p.read_text()
+              old = "#include <linux/task_work.h>"
+              assert source.count(old) == 1, name
+              assert "#include <linux/sched/task.h>" not in source, name
+              p.write_text(source.replace(old, "#include <linux/sched/task.h>\n" + old))
           fsnotify_header = Path("include/linux/fsnotify_backend.h").read_text()
           if "int (*handle_inode_event)" not in fsnotify_header:
               assert "int (*handle_event)(struct fsnotify_group *group," in fsnotify_header
@@ -323,25 +331,3 @@ jobs:
           path: logs/
           if-no-files-found: warn
           retention-days: 7
-
-  cleanup-old-runs:
-    name: Delete superseded failed and cancelled runs
-    if: github.event_name == 'push' && github.event.before == '90fba537aebf60e64ba1b3f390e7751628456853' && github.run_attempt == 1
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Delete only explicitly selected completed unsuccessful runs
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for id in 45606130388 45610118317 45610554680 45611255611 45613475700; do
-            test "$id" != "$GITHUB_RUN_ID"
-            metadata="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")"
-            jq -e '.status == "completed" and (.conclusion == "failure" or .conclusion == "cancelled")' <<< "$metadata" >/dev/null
-            gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$id"
-            echo "Deleted old run $id"
-          done
