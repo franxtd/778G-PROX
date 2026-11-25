@@ -1,4 +1,4 @@
-name: Dubai stock kernel (AOSP Clang r614150)
+name: Dubai BakaSU (AOSP Clang r614150)
 
 on:
   workflow_dispatch:
@@ -134,6 +134,26 @@ jobs:
           ccache --max-size=3G
           ccache --zero-stats
           ccache --show-stats
+      - name: Integrate pinned BakaSU (Built-In)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p logs
+          git clone --branch main --single-branch https://github.com/Baka-SU/BakaSU.git KernelSU
+          git -C KernelSU checkout --detach 57b2db6076f439cfd489f14576444e8f0f2f0a25
+          test "$(git -C KernelSU rev-parse HEAD)" = 57b2db6076f439cfd489f14576444e8f0f2f0a25
+          test -f KernelSU/kernel/Kconfig
+          test ! -e drivers/kernelsu
+          ln -s ../KernelSU/kernel drivers/kernelsu
+          printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+          sed -i '/^endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          test -e drivers/kernelsu/Kconfig
+          grep -Fq 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          grep -Fq 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile
+          git -C KernelSU rev-parse HEAD | tee logs/bakasu-revision.txt
+          test -f KernelSU/kernel/Kbuild
+          test -f KernelSU/kernel/tools/manual_hook_check.mk
+
       - name: Configure and compile for Motorola Edge 30 (dubai)
         shell: bash
         run: |
@@ -142,6 +162,7 @@ jobs:
           clang${LLVM_SUFFIX} --version | tee logs/compiler.txt
           cfg=arch/arm64/configs/vendor
           scripts/kconfig/merge_config.sh -m -O out "$cfg/lahaina-qgki_defconfig" "$cfg/lineage_moto-lahaina.config" "$cfg/lineage_dubai.config" 2>&1 | tee logs/config-merge.log
+          scripts/config --file out/.config --enable KSU --enable KPROBES --enable KALLSYMS_ALL --enable EXT4_FS --enable HEADERS_INSTALL --enable KSU_MANUAL_HOOK --enable KSU_MANUAL_HOOK_AUTO_SETUID_HOOK --enable KSU_MANUAL_HOOK_AUTO_INITRC_HOOK --enable KSU_MANUAL_HOOK_AUTO_INPUT_HOOK --disable KSU_TRACEPOINT_HOOK --disable KSU_SUSFS --disable KSU_DEBUG --disable KSU_TOOLKIT_SUPPORT --disable KSU_DISABLE_MANAGER --disable KSU_DISABLE_POLICY
           opts=(O=out LLVM=1 LLVM_IAS=1
             "CC=ccache clang${LLVM_SUFFIX}" LD=ld.lld${LLVM_SUFFIX}
             AR=llvm-ar${LLVM_SUFFIX} NM=llvm-nm${LLVM_SUFFIX}
@@ -154,8 +175,25 @@ jobs:
           cp out/.config logs/kernel.config
           grep -qx 'CONFIG_ARM64=y' out/.config
           grep -qx 'CONFIG_ARCH_YUPIK=y' out/.config
-          test ! -e drivers/kernelsu
-          ! grep -Eq '^CONFIG_KSU=[ym]' out/.config
+          for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_MANUAL_HOOK KSU_MANUAL_HOOK_AUTO_SETUID_HOOK KSU_MANUAL_HOOK_AUTO_INITRC_HOOK KSU_MANUAL_HOOK_AUTO_INPUT_HOOK SECURITY_SELINUX CFI_CLANG; do
+            grep -qx "CONFIG_$symbol=y" out/.config
+          done
+          grep -qx '# CONFIG_KSU_SUSFS is not set' out/.config
+          make -j"$(nproc)" "${opts[@]}" headers_install 2>&1 | tee logs/headers.log
+          test -s out/usr/include/linux/unistd.h
+          # Generate SELinux headers before compiling the built-in root driver.
+          make -j"$(nproc)" "${opts[@]}" security/selinux/ 2>&1 | tee logs/selinux-preflight.log
+          test -s out/security/selinux/flask.h
+          test -s out/security/selinux/av_permissions.h
+          if ! make -k -j"$(nproc)" "${opts[@]}" drivers/kernelsu/ 2>&1 | tee logs/bakasu-preflight.log; then
+            {
+              echo '### BakaSU compatibility preflight failed'
+              echo '```text'
+              grep -E 'error:|undefined reference|LLVM ERROR' logs/bakasu-preflight.log | head -n 100 || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
           make -j"$(nproc)" "${opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
       - name: Report ccache statistics
         if: ${{ !cancelled() && steps.ccache-init.outcome == 'success' }}
@@ -200,7 +238,7 @@ jobs:
       - name: Upload kernel artifacts
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: dubai-kernel-${{ github.sha }}
+          name: dubai-bakasu-kernel-${{ github.sha }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 7

@@ -114,5 +114,6 @@ extern dev_t name_to_dev_t(const char *name);
 extern unsigned int sysctl_mount_max;
 
 extern bool path_is_mountpoint(const struct path *path);
+extern int path_umount(struct path *path, int flags);
 
 #endif /* _LINUX_MOUNT_H */
