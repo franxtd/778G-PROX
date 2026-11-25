@@ -10,7 +10,7 @@ permissions:
 
 concurrency:
   group: dubai-kernel-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -160,6 +160,9 @@ jobs:
           set -euo pipefail
           mkdir -p out logs
           clang${LLVM_SUFFIX} --version | tee logs/compiler.txt
+          # Confirm Kbuild warning-option probes can succeed with this compiler.
+          clang${LLVM_SUFFIX} --target=aarch64-linux-gnu -fintegrated-as -Werror -Waddress-of-packed-member -c -x c /dev/null -o "$RUNNER_TEMP/clang-probe.o"
+          rm -f "$RUNNER_TEMP/clang-probe.o"
           # LineageOS 21 BoardConfigCommon.mk then Dubai BoardConfig.mk.
           cfg=arch/arm64/configs/vendor
           sha256sum "$cfg/lahaina-qgki_defconfig" "$cfg/lineage_moto-lahaina.config" "$cfg/lineage_dubai.config" | tee logs/defconfig-sha256.txt
@@ -167,7 +170,7 @@ jobs:
           test "$(git hash-object "$cfg/lineage_moto-lahaina.config")" = 8eb407aaadcbaa74560a6fa6582f5675f97507fe
           test "$(git hash-object "$cfg/lineage_dubai.config")" = 0d2b016bb57f504e6c343e8747177377e87ee83d
           opts=(O=out LLVM=1 LLVM_IAS=1
-            "CC=ccache clang${LLVM_SUFFIX} --cuda-path=/dev/null --hip-path=/dev/null"
+            "CC=ccache clang${LLVM_SUFFIX}"
             LD=ld.lld${LLVM_SUFFIX} AR=llvm-ar${LLVM_SUFFIX} NM=llvm-nm${LLVM_SUFFIX}
             OBJCOPY=llvm-objcopy${LLVM_SUFFIX} OBJDUMP=llvm-objdump${LLVM_SUFFIX}
             READELF=llvm-readelf${LLVM_SUFFIX} STRIP=llvm-strip${LLVM_SUFFIX}
