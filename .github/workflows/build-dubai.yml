@@ -145,6 +145,20 @@ jobs:
           mkdir -p logs
           git clone --branch v1.7.0 --single-branch https://github.com/LyraVoid/FinaSU.git FinaSU
           test "$(git -C FinaSU rev-parse HEAD)" = a85c03ab6be57fd1a81a6d345eb5aa8275652b42
+          # Linux 5.4 provides the ARM64 page-table definitions via asm/pgtable.h.
+          if [ ! -f include/linux/pgtable.h ]; then
+            test -f arch/arm64/include/asm/pgtable.h
+            python3 - <<'PY'
+          from pathlib import Path
+          p = Path("FinaSU/kernel/feature/sucompat.c")
+          source = p.read_text()
+          old = "#include <linux/pgtable.h>"
+          assert source.count(old) == 1, "Unexpected FinaSU header layout"
+          p.write_text(source.replace(old, "#include <asm/pgtable.h>"))
+          PY
+          fi
+          git -C FinaSU diff --check
+          git -C FinaSU diff -- kernel/feature/sucompat.c | tee logs/finasu-compat.patch
           sh FinaSU/kernel/setup.sh --dir "$PWD/FinaSU" 2>&1 | tee logs/finasu-setup.log
           test -e drivers/kernelsu/Kconfig
           grep -Fq 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
