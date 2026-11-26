@@ -972,6 +972,18 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
 	P(se.avg.util_est.ewma);
 	P(se.avg.util_est.enqueued);
 #endif
+#ifdef CONFIG_UCLAMP_TASK
+	rcu_read_lock();
+	SEQ_printf(m, "%-45s:%21u\n", "uclamp.min",
+		   p->uclamp_req[UCLAMP_MIN].value);
+	SEQ_printf(m, "%-45s:%21u\n", "uclamp.max",
+		   p->uclamp_req[UCLAMP_MAX].value);
+	SEQ_printf(m, "%-45s:%21lu\n", "effective uclamp.min",
+		   uclamp_eff_value(p, UCLAMP_MIN));
+	SEQ_printf(m, "%-45s:%21lu\n", "effective uclamp.max",
+		   uclamp_eff_value(p, UCLAMP_MAX));
+	rcu_read_unlock();
+#endif
 	P(policy);
 	P(prio);
 	if (task_has_dl_policy(p)) {

@@ -2762,7 +2762,7 @@ static inline bool uclamp_latency_sensitive(struct task_struct *p)
 		return false;
 	tg = container_of(css, struct task_group, css);
 
-	return tg->latency_sensitive;
+	return READ_ONCE(tg->latency_sensitive);
 }
 #else
 static inline bool uclamp_latency_sensitive(struct task_struct *p)

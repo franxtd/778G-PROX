@@ -1,0 +1,6 @@
+id=fran_uclamp_profiles
+name=FranBakaSU UClamp Task Profiles - Dubai
+version=v1.0-experimental
+versionCode=1
+author=FranBakaSU
+description=Game-scoped top-app utilization and latency hints. Preserves cpufreq limits and restores previous hints when the game leaves foreground.
