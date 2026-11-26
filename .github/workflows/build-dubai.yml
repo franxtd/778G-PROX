@@ -1,9 +1,9 @@
-name: FranBakaSU Dubai LOS21 Linux 5.4.286 + SUSFS 2.4.0 + NoMount 2.3.1
+name: FranBakaSU Dubai LOS21 Linux 5.4.286 + SUSFS + NoMount + Gaming/FAS
 
 on:
   workflow_dispatch:
   push:
-    branches: [work/dubai-susfs-nomount-5.4]
+    branches: [work/dubai-gaming-fas-5.4]
 
 permissions:
   contents: read
@@ -58,7 +58,7 @@ jobs:
           mkdir -p "$APT_CACHE_DIR/partial"
           sudo chown _apt:root "$APT_CACHE_DIR/partial"
           sudo apt-get update
-          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR/" -o APT::Keep-Downloaded-Packages=true -o Binary::apt-get::APT::Keep-Downloaded-Packages=true install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves device-tree-compiler lz4 cpio rsync kmod python3 curl ccache zip unzip
+          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR/" -o APT::Keep-Downloaded-Packages=true -o Binary::apt-get::APT::Keep-Downloaded-Packages=true install -y --no-install-recommends bc bison flex build-essential libssl-dev libelf-dev libncurses-dev dwarves device-tree-compiler lz4 cpio rsync kmod python3 curl ccache zip unzip qemu-system-arm
           sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"
           if find "$APT_CACHE_DIR" -maxdepth 1 -type f -name '*.deb' -print -quit | grep -q .; then
             echo "has-debs=true" >> "$GITHUB_OUTPUT"
@@ -173,14 +173,14 @@ jobs:
             READELF=llvm-readelf${LLVM_SUFFIX} STRIP=llvm-strip${LLVM_SUFFIX}
             HOSTCC=clang${LLVM_SUFFIX} HOSTCXX=clang++${LLVM_SUFFIX}
             "DTC_EXT=$(command -v dtc)" "LZ4=$(command -v lz4)")
-          # Preserve the successful build-30 device configuration, adding SUSFS.
+          # Preserve the successful build-30 device configuration, adding SUSFS, NoMount and two optional governors.
           make "${opts[@]}" vendor/franbakasu_susfs_defconfig 2>&1 | tee logs/config-merge.log
           cp out/.config logs/susfs-reference.config
           make "${opts[@]}" olddefconfig 2>&1 | tee logs/config.log
           cp out/.config logs/kernel.config
           grep -qx 'CONFIG_ARM64=y' out/.config
           grep -qx 'CONFIG_ARCH_YUPIK=y' out/.config
-          for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SUS_MAP KSU_SUSFS_ENABLE_LOG NOMOUNT KEYS SECURITY_SELINUX CFI_CLANG LTO_CLANG THINLTO MODULES MODVERSIONS; do
+          for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SUS_MAP KSU_SUSFS_ENABLE_LOG NOMOUNT KEYS CPU_FREQ_GOV_ONDEMAND CPU_FREQ_GOV_USERSPACE BPF_SYSCALL BPF_JIT BPF_EVENTS UPROBE_EVENTS SECURITY_SELINUX CFI_CLANG LTO_CLANG THINLTO MODULES MODVERSIONS; do
             grep -qx "CONFIG_$symbol=y" out/.config
           done
           grep -qx '# CONFIG_KSU_MANUAL_HOOK is not set' out/.config
@@ -206,9 +206,9 @@ jobs:
             exit 1
           fi
           # Follow vendor/lineage/build/tasks/kernel.mk target ordering.
-          make -j"$(nproc)" "${opts[@]}" Image 2>&1 | tee logs/build.log
-          make -j"$(nproc)" "${opts[@]}" dtbs 2>&1 | tee logs/dtbs.log
-          make -j"$(nproc)" "${opts[@]}" modules 2>&1 | tee logs/modules-build.log
+          make -j"$(nproc)" "${opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
+          CC=clang${LLVM_SUFFIX} ci/fas/build-probe.sh out
+          cp out/fas-feature-probe logs/
           make -j"$(nproc)" "${opts[@]}" "INSTALL_MOD_PATH=$GITHUB_WORKSPACE/module-install" INSTALL_MOD_STRIP=1 modules_install 2>&1 | tee logs/modules-install.log
           test -s out/include/config/kernel.release
           test -d "module-install/lib/modules/$(cat out/include/config/kernel.release)"
@@ -316,7 +316,7 @@ jobs:
           test -s "$ak/tools/ak3-core.sh"
           test -s "$ak/Image"
           sh -n "$ak/anykernel.sh"
-          name="FranBakaSU-SUSFS-NoMount-2.3.1-Dubai-LOS21-5.4.286-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
+          name="FranBakaSU-Gaming-FAS-Dubai-LOS21-5.4.286-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
           output="$GITHUB_WORKSPACE/packages/$name"
           (cd "$ak" && zip -q -r -9 -y "$output" .)
           unzip -t "$output" | tee logs/anykernel-zip-check.txt
@@ -331,10 +331,20 @@ jobs:
           PY
           (cd packages && sha256sum "$name" > SHA256SUMS.txt)
           echo "Generated experimental boot-only AnyKernel3 ZIP: $name" >> "$GITHUB_STEP_SUMMARY"
+      - name: Validate BPF and package fas-rs compatibility module
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/fas/test-ram-profile.py | tee logs/ram-profile-tests.log
+          python3 ci/fas/run-qemu.py out/arch/arm64/boot/Image out/fas-feature-probe logs/qemu-probe.log
+          curl -fL --retry 3 https://github.com/shadow3aaa/fas-rs/releases/download/v4.9.1/fas-rs.zip -o "$RUNNER_TEMP/fas-upstream.zip"
+          python3 ci/fas/package-module.py "$RUNNER_TEMP/fas-upstream.zip" out/fas-feature-probe packages/fas-rs-4.9.1-FranBakaSU-5.4.zip
+          cp ci/GAMING.md packages/
+          (cd packages && sha256sum *.zip > SHA256SUMS.txt)
       - name: Upload AnyKernel3 ZIP
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: FranBakaSU-SUSFS-NoMount-Dubai-LOS21-AnyKernel3-${{ github.sha }}
+          name: FranBakaSU-Gaming-FAS-Dubai-LOS21-AnyKernel3-${{ github.sha }}
           path: packages/
           if-no-files-found: error
           retention-days: 7

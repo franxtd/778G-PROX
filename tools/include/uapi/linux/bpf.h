@@ -136,6 +136,10 @@ enum bpf_map_type {
 	BPF_MAP_TYPE_STACK,
 	BPF_MAP_TYPE_SK_STORAGE,
 	BPF_MAP_TYPE_DEVMAP_HASH,
+#ifndef __GENKSYMS__
+	/* Value 26 is reserved for upstream STRUCT_OPS (not backported). */
+	BPF_MAP_TYPE_RINGBUF = 27,
+#endif
 };
 
 /* Note that tracing related programs such as
@@ -2763,6 +2767,24 @@ union bpf_attr {
  * 	Return
  * 		Current *ktime*.
  */
+/* Keep existing helper IDs and vendor-module type hashes unchanged.
+ * Helpers 126..129 are reserved here; only ringbuf helpers are added.
+ */
+#ifndef __GENKSYMS__
+#define __BPF_RINGBUF_FUNC_MAPPER(FN)	\
+	FN(seq_printf),			\
+	FN(seq_write),			\
+	FN(sk_cgroup_id),		\
+	FN(sk_ancestor_cgroup_id),	\
+	FN(ringbuf_output),		\
+	FN(ringbuf_reserve),		\
+	FN(ringbuf_submit),		\
+	FN(ringbuf_discard),		\
+	FN(ringbuf_query),
+#else
+#define __BPF_RINGBUF_FUNC_MAPPER(FN)
+#endif
+
 #define __BPF_FUNC_MAPPER(FN)		\
 	FN(unspec),			\
 	FN(map_lookup_elem),		\
@@ -2889,7 +2911,8 @@ union bpf_attr {
 	FN(get_netns_cookie),		\
 	FN(get_current_ancestor_cgroup_id),	\
 	FN(sk_assign),			\
-	FN(ktime_get_boot_ns),
+	FN(ktime_get_boot_ns),		\
+	__BPF_RINGBUF_FUNC_MAPPER(FN)
 
 /* integer value in 'imm' field of BPF_CALL instruction selects which helper
  * function eBPF program intends to call
@@ -2900,6 +2923,23 @@ enum bpf_func_id {
 	__BPF_FUNC_MAX_ID,
 };
 #undef __BPF_ENUM_FN
+
+/* BPF ring-buffer ABI, matching upstream Linux 5.8+. */
+enum {
+	BPF_RB_NO_WAKEUP = (1ULL << 0),
+	BPF_RB_FORCE_WAKEUP = (1ULL << 1),
+};
+enum {
+	BPF_RB_AVAIL_DATA = 0,
+	BPF_RB_RING_SIZE = 1,
+	BPF_RB_CONS_POS = 2,
+	BPF_RB_PROD_POS = 3,
+};
+enum {
+	BPF_RINGBUF_BUSY_BIT = (1U << 31),
+	BPF_RINGBUF_DISCARD_BIT = (1U << 30),
+	BPF_RINGBUF_HDR_SZ = 8,
+};
 
 /* All flags used by eBPF helper functions, placed here. */
 

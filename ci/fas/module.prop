@@ -1,0 +1,6 @@
+id=fas_rs
+name=fas-rs 4.9.1 - FranBakaSU 5.4 compatibility
+version=v4.9.1-fran-5.4-r1
+versionCode=409001
+author=shadow3
+description=Official fas-rs binary with BPF feature detection for backported 5.4 and reversible zRAM readahead tuning.

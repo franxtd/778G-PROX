@@ -23,6 +23,7 @@
 #include <linux/timekeeping.h>
 #include <linux/ctype.h>
 #include <linux/nospec.h>
+#include <linux/poll.h>
 
 #define IS_FD_ARRAY(map) ((map)->map_type == BPF_MAP_TYPE_PROG_ARRAY || \
 			   (map)->map_type == BPF_MAP_TYPE_PERF_EVENT_ARRAY || \
@@ -428,6 +429,30 @@ static ssize_t bpf_dummy_write(struct file *filp, const char __user *buf,
 	return -EINVAL;
 }
 
+static int bpf_map_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+	struct bpf_map *map = filp->private_data;
+
+	if (map->map_type != BPF_MAP_TYPE_RINGBUF)
+		return -EOPNOTSUPP;
+	if (!(vma->vm_flags & VM_SHARED) || (vma->vm_flags & VM_EXEC))
+		return -EINVAL;
+	if (READ_ONCE(map->frozen) && (vma->vm_flags & VM_WRITE))
+		return -EPERM;
+	vma->vm_flags &= ~VM_MAYEXEC;
+	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
+	return bpf_ringbuf_map_mmap(map, vma);
+}
+
+static __poll_t bpf_map_poll(struct file *filp, struct poll_table_struct *pts)
+{
+	struct bpf_map *map = filp->private_data;
+
+	if (map->map_type != BPF_MAP_TYPE_RINGBUF)
+		return EPOLLERR;
+	return bpf_ringbuf_map_poll(map, filp, pts);
+}
+
 const struct file_operations bpf_map_fops = {
 #ifdef CONFIG_PROC_FS
 	.show_fdinfo	= bpf_map_show_fdinfo,
@@ -435,6 +460,8 @@ const struct file_operations bpf_map_fops = {
 	.release	= bpf_map_release,
 	.read		= bpf_dummy_read,
 	.write		= bpf_dummy_write,
+	.mmap		= bpf_map_mmap,
+	.poll		= bpf_map_poll,
 };
 
 int bpf_map_new_fd(struct bpf_map *map, int flags)
@@ -1181,6 +1208,11 @@ static int map_freeze(const union bpf_attr *attr)
 		return PTR_ERR(map);
 	if (READ_ONCE(map->frozen)) {
 		err = -EBUSY;
+		goto err_put;
+	}
+	/* Ringbuf mappings require a writable consumer page. */
+	if (map->map_type == BPF_MAP_TYPE_RINGBUF) {
+		err = -EOPNOTSUPP;
 		goto err_put;
 	}
 	if (!capable(CAP_SYS_ADMIN)) {
