@@ -67,7 +67,7 @@ CI builds the complete ARM64 Image, device trees and original modules with
 the pinned AOSP Clang and checks every baseline exported-symbol CRC. QEMU
 runs the real Image with a CI-only virtual cpufreq driver: governor switch
 lifecycle and forced limits through both fast and deferred paths. It tests
-process_madvise data preservation, byte counts, partial completion and
+process_madvise native/AArch32 vector import, data preservation, byte counts, partial completion and
 permission/error paths, then runs the original 400-uprobe FAS feature test.
 The virtual driver is never included in the flashable ZIP and refuses real
 phone platforms. Qualcomm-only early firmware initcalls are skipped only in

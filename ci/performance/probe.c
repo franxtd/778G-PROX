@@ -66,10 +66,23 @@ static int governor_test(const char *options)
  }
  e+=check(sc(delete_module,"fran_qemu_cpufreq",0,0,0,0,0)==0,"unload virtual driver and governor cleanly");return e;
 }
+static int compat_test(void)
+{
+ long child=sc(clone,17,0,0,0,0,0);
+ if(!child){
+  const char *args[]={"/compat-probe",0};
+  sc(execve,args[0],args,0,0,0,0);
+  sc(exit_group,127,0,0,0,0,0);
+  for(;;){}
+ }
+ int status=-1;
+ return check(child>0&&sc(wait4,child,&status,0,0,0,0)==child&&status==0,
+              "AArch32 process_madvise compat ABI");
+}
 void start_c(void)
 {
  int e=0;e+=check(sc(mount,"proc","/proc","proc",0,0,0)==0&&sc(mount,"sysfs","/sys","sysfs",0,0,0)==0,"mount test interfaces");
- if(!e){e+=memory_test();say("Testing fast switching\n");e+=governor_test("");say("Testing deferred switching\n");e+=governor_test("slow=1");}
+ if(!e){e+=memory_test();e+=compat_test();say("Testing fast switching\n");e+=governor_test("");say("Testing deferred switching\n");e+=governor_test("slow=1");}
  say(e?"PERFORMANCE_PROBE: FAIL\n":"PERFORMANCE_PROBE: PASS\n");
  sc(reboot,0xfee1dead,672274793,0x4321fedc,0,0,0);for(;;)sc(exit_group,1,0,0,0,0,0);
 }

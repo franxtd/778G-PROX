@@ -28,6 +28,7 @@ with tempfile.TemporaryDirectory() as td:
     archive += entry('dev/console', 0o020600, major=5, minor=1)
     archive += entry('init', 0o100755, probe.read_bytes())
     archive += entry('fran_qemu_cpufreq.ko', 0o100600, module.read_bytes())
+    archive += entry('compat-probe', 0o100755, (probe.parent/'compat-probe').read_bytes())
     archive += entry('TRAILER!!!', 0)
     initrd.write_bytes(gzip.compress(archive, mtime=0))
     command = [os.environ.get('QEMU_BINARY','qemu-system-aarch64'), '-M','virt',
