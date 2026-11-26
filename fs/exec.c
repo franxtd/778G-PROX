@@ -23,6 +23,7 @@
  * formats.
  */
 
+#include <linux/jump_label.h>
 #include <linux/slab.h>
 #include <linux/file.h>
 #include <linux/fdtable.h>
@@ -1904,11 +1905,21 @@ out_ret:
 	return retval;
 }
 
-#ifdef CONFIG_KSU_MANUAL_HOOK
+#ifdef CONFIG_KSU_SUSFS
+#include <linux/susfs_def.h>
 extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
 			      void *argv, void *envp, int *flags);
-extern int ksu_handle_post_execveat(int *fd, struct filename **filename_ptr,
+extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr,
+			      void *argv, void *envp, int *flags);
+extern int ksu_handle_post_execveat_sucompat(int *fd, struct filename **filename_ptr,
 			      void *argv, void *envp, int *flags, int *retval);
+extern struct static_key_true ksu_su_compat_enabled;
+extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
+extern int ksu_setup_preinit_file(struct filename **filename_ptr,
+				struct user_arg_ptr *argv_user);
+extern int ksu_preinit_handle_post_execveat(int *fd, struct filename **filename_ptr,
+				void *argv_user, void *envp_user, int *flags,
+				int *retval, int *preinit_fd);
 #endif
 
 static int do_execveat_common(int fd, struct filename *filename,
@@ -1916,14 +1927,26 @@ static int do_execveat_common(int fd, struct filename *filename,
 			      struct user_arg_ptr envp,
 			      int flags)
 {
-#ifdef CONFIG_KSU_MANUAL_HOOK
+#ifdef CONFIG_KSU_SUSFS
 	int retval;
+	int preinit_fd = 0;
+	bool is_su_session = false;
 	struct filename *held;
 
 	if (IS_ERR_OR_NULL(filename))
 		return __do_execve_file(fd, filename, argv, envp, flags, NULL);
 
-	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
+	if (!susfs_is_current_proc_no_su()) {
+		if (static_branch_likely(&ksu_su_compat_enabled)) {
+			if (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted))
+				is_su_session = !ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
+			else
+				is_su_session = !ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
+		}
+		if (current->pid == 1 && !is_su_session &&
+		    (fd == AT_FDCWD || !(flags & AT_EMPTY_PATH)))
+			preinit_fd = ksu_setup_preinit_file(&filename, &argv);
+	}
 	if (IS_ERR_OR_NULL(filename))
 		return __do_execve_file(fd, filename, argv, envp, flags, NULL);
 
@@ -1932,7 +1955,16 @@ static int do_execveat_common(int fd, struct filename *filename,
 	held = filename;
 	held->refcnt++;
 	retval = __do_execve_file(fd, filename, argv, envp, flags, NULL);
-	ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);
+	if (is_su_session)
+		ksu_handle_post_execveat_sucompat(&fd, &filename, &argv, &envp, &flags, &retval);
+	if (preinit_fd > 0 &&
+	    ksu_preinit_handle_post_execveat(&fd, &filename, &argv, &envp,
+					   &flags, &retval, &preinit_fd)) {
+		/* The failed runner attempt consumed its reference. Retry init
+		 * with a fresh reference while keeping the callback owner alive. */
+		held->refcnt++;
+		retval = __do_execve_file(fd, filename, argv, envp, flags, NULL);
+	}
 	putname(held);
 	return retval;
 #else

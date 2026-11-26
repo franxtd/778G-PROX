@@ -1,9 +1,9 @@
-name: Dubai LineageOS 21 20241227 Linux 5.4.286 - BakaSU (AOSP Clang r614150)
+name: FranBakaSU Dubai LOS21 Linux 5.4.286 + SUSFS 2.4.0
 
 on:
   workflow_dispatch:
   push:
-    branches: [ci/dubai-lineage21-bakasu]
+    branches: [work/dubai-susfs-5.4]
 
 permissions:
   contents: read
@@ -143,16 +143,12 @@ jobs:
           git -C KernelSU checkout --detach 57b2db6076f439cfd489f14576444e8f0f2f0a25
           test "$(git -C KernelSU rev-parse HEAD)" = 57b2db6076f439cfd489f14576444e8f0f2f0a25
           test -f KernelSU/kernel/Kconfig
-          test ! -e drivers/kernelsu
-          ln -s ../KernelSU/kernel drivers/kernelsu
-          printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
-          sed -i '/^endmenu/i\source "drivers/kernelsu/Kconfig"' drivers/Kconfig
           test -e drivers/kernelsu/Kconfig
           grep -Fq 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
           grep -Fq 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile
           git -C KernelSU rev-parse HEAD | tee logs/bakasu-revision.txt
           test -f KernelSU/kernel/Kbuild
-          test -f KernelSU/kernel/tools/manual_hook_check.mk
+          test -f KernelSU/kernel/tools/inline_hook_check.mk
 
       - name: Configure and compile for Motorola Edge 30 (dubai)
         shell: bash
@@ -177,18 +173,17 @@ jobs:
             READELF=llvm-readelf${LLVM_SUFFIX} STRIP=llvm-strip${LLVM_SUFFIX}
             HOSTCC=clang${LLVM_SUFFIX} HOSTCXX=clang++${LLVM_SUFFIX}
             "DTC_EXT=$(command -v dtc)" "LZ4=$(command -v lz4)")
-          # Match the ROM Kbuild target order, including each fragment olddefconfig.
-          make "${opts[@]}" vendor/lahaina-qgki_defconfig vendor/lineage_moto-lahaina.config vendor/lineage_dubai.config 2>&1 | tee logs/config-merge.log
-          cp out/.config logs/rom-config-before-root.txt
-          scripts/config --file out/.config --enable KSU --enable KPROBES --enable KALLSYMS_ALL --enable EXT4_FS --enable HEADERS_INSTALL --enable KSU_MANUAL_HOOK --enable KSU_MANUAL_HOOK_AUTO_SETUID_HOOK --enable KSU_MANUAL_HOOK_AUTO_INITRC_HOOK --enable KSU_MANUAL_HOOK_AUTO_INPUT_HOOK --disable KSU_TRACEPOINT_HOOK --disable KSU_SUSFS --disable KSU_DEBUG --disable KSU_TOOLKIT_SUPPORT --disable KSU_DISABLE_MANAGER --disable KSU_DISABLE_POLICY
+          # Preserve the successful build-30 device configuration, adding SUSFS.
+          make "${opts[@]}" vendor/franbakasu_susfs_defconfig 2>&1 | tee logs/config-merge.log
+          cp out/.config logs/susfs-reference.config
           make "${opts[@]}" olddefconfig 2>&1 | tee logs/config.log
           cp out/.config logs/kernel.config
           grep -qx 'CONFIG_ARM64=y' out/.config
           grep -qx 'CONFIG_ARCH_YUPIK=y' out/.config
-          for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_MANUAL_HOOK KSU_MANUAL_HOOK_AUTO_SETUID_HOOK KSU_MANUAL_HOOK_AUTO_INITRC_HOOK KSU_MANUAL_HOOK_AUTO_INPUT_HOOK SECURITY_SELINUX CFI_CLANG LTO_CLANG THINLTO MODULES MODVERSIONS; do
+          for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SUS_MAP KSU_SUSFS_ENABLE_LOG SECURITY_SELINUX CFI_CLANG LTO_CLANG THINLTO MODULES MODVERSIONS; do
             grep -qx "CONFIG_$symbol=y" out/.config
           done
-          grep -qx '# CONFIG_KSU_SUSFS is not set' out/.config
+          grep -qx '# CONFIG_KSU_MANUAL_HOOK is not set' out/.config
           for symbol in INPUT_TOUCHSCREEN_MMI TOUCHSCREEN_GOODIX_BRL RBS_FPS_MMI QCA_CLD_WLAN MOTO_F_USBNET WATCHDOGTEST SND_SOC_CS35L41 SND_SOC_CS35L45 ZRAM; do
             grep -qx "CONFIG_$symbol=m" out/.config
           done
@@ -293,7 +288,7 @@ jobs:
           python3 "$RUNNER_TEMP/mkdtboimg.py" dump artifacts/dtbo.img > logs/dtbo-layout.txt
           test "$(stat -c %s artifacts/dtbo.img)" -le 25165824
           test "$(stat -c %s artifacts/dtb.img)" -le 100663296
-          cp logs/rom-config-before-root.txt logs/dtbo-layout.txt logs/rom-module-staging-report.txt artifacts/
+          cp logs/susfs-reference.config logs/dtbo-layout.txt logs/rom-module-staging-report.txt artifacts/
           (cd artifacts && sha256sum * > SHA256SUMS.txt)
           echo 'Static ARM64 kernel validation passed.' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload kernel artifacts
@@ -321,7 +316,7 @@ jobs:
           test -s "$ak/tools/ak3-core.sh"
           test -s "$ak/Image"
           sh -n "$ak/anykernel.sh"
-          name="FranProx-Dubai-LOS21-5.4.286-BakaSU-AnyKernel3-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
+          name="FranBakaSU-SUSFS-2.4.0-Dubai-LOS21-5.4.286-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
           output="$GITHUB_WORKSPACE/packages/$name"
           (cd "$ak" && zip -q -r -9 -y "$output" .)
           unzip -t "$output" | tee logs/anykernel-zip-check.txt
@@ -339,7 +334,7 @@ jobs:
       - name: Upload AnyKernel3 ZIP
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: FranProx-Dubai-LOS21-AnyKernel3-${{ github.sha }}
+          name: FranBakaSU-SUSFS-Dubai-LOS21-AnyKernel3-${{ github.sha }}
           path: packages/
           if-no-files-found: error
           retention-days: 7

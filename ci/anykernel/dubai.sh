@@ -2,7 +2,7 @@
 ## Based on osm0sis/AnyKernel3
 
 properties() { '
-kernel.string=FranProx Dubai LOS21 5.4.286 - BakaSU (experimental boot-only)
+kernel.string=FranBakaSU Dubai LOS21 5.4.286 + SUSFS 2.4.0 (experimental)
 do.devicecheck=1
 do.modules=0
 do.systemless=0
