@@ -431,8 +431,7 @@ static unsigned long sugov_get_util(struct sugov_cpu *sg_cpu)
 #ifdef CONFIG_SCHED_WALT
 	util = cpu_util_freq_walt(sg_cpu->cpu, &sg_cpu->walt_load);
 
-	/* Keep WALT's load tests based on demand, not a clamped hint. */
-	return util;
+	return uclamp_rq_util_with(rq, util, NULL);
 #else
 	util = cpu_util_cfs(rq);
 
@@ -615,16 +614,6 @@ static void sugov_walt_adjust(struct sugov_cpu *sg_cpu, unsigned long *util,
 	}
 }
 
-/* Apply boosts before the clamp so task profiles constrain the final signal. */
-static unsigned long sugov_effective_util(struct sugov_cpu *sg_cpu, u64 time,
-					 unsigned long util, unsigned long *max)
-{
-	util = sugov_iowait_apply(sg_cpu, time, util, *max);
-	sugov_walt_adjust(sg_cpu, &util, max);
-
-	return uclamp_rq_util_with(cpu_rq(sg_cpu->cpu), util, NULL);
-}
-
 /*
  * Make sugov_should_update_freq() ignore the rate limit when DL
  * has increased the utilization.
@@ -684,6 +673,7 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 		sg_policy->rtg_boost_util = boost_util;
 	}
 
+	util = sugov_iowait_apply(sg_cpu, time, util, max);
 	sugov_calc_avg_cap(sg_policy, sg_cpu->walt_load.ws,
 			   sg_policy->policy->cur);
 
@@ -692,7 +682,7 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 				sg_cpu->walt_load.pl,
 				sg_cpu->walt_load.rtgb_active, flags);
 
-	util = sugov_effective_util(sg_cpu, time, util, &max);
+	sugov_walt_adjust(sg_cpu, &util, &max);
 	next_f = get_next_freq(sg_policy, util, max);
 	/*
 	 * Do not reduce the frequency if the CPU has not been idle
@@ -755,12 +745,14 @@ static unsigned int sugov_next_freq_shared(struct sugov_cpu *sg_cpu, u64 time)
 		 */
 		j_util = j_sg_cpu->util;
 		j_max = j_sg_cpu->max;
-		j_util = sugov_effective_util(j_sg_cpu, time, j_util, &j_max);
+		j_util = sugov_iowait_apply(j_sg_cpu, time, j_util, j_max);
 
 		if (j_util * max >= j_max * util) {
 			util = j_util;
 			max = j_max;
 		}
+
+		sugov_walt_adjust(j_sg_cpu, &util, &max);
 	}
 
 	return get_next_freq(sg_policy, util, max);

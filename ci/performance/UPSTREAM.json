@@ -1,0 +1,16 @@
+{
+  "walt": {
+    "repository": "https://github.com/crdroidandroid/android_kernel_nothing_sm8475",
+    "commit": "d3b261dbd2324c313bc4892bd6fba69bb8b50cc2",
+    "path": "kernel/sched/walt/cpufreq_walt.c",
+    "blob": "3d24cf3fd1e7396330a22b83b2236147233c5da3"
+  },
+  "process_madvise": {
+    "repository": "https://android.googlesource.com/kernel/common",
+    "commit": "4c7c54d5282535632ad82a459d9a58e130a0452c",
+    "path": "mm/madvise.c",
+    "sha256": "e780522cd1b5de99fbb970bb2cd8f6473adadd9944ca44ed422ce8644d60dd37"
+  },
+  "reverted_uclamp_commit": "acb885d5a862a58e973032734ece9e156cf5b147",
+  "native_scheduler_base": "00cf9162657ed37fc3a460523ec84b3aa6bed9a2"
+}

@@ -206,6 +206,17 @@ config CPU_FREQ_GOV_SCHEDUTIL
 
 	  If in doubt, say N.
 
+config CPU_FREQ_GOV_WALT
+	bool "'walt' Qualcomm window-assisted cpufreq governor"
+	depends on CPU_FREQ && SMP && SCHED_WALT
+	select CPU_FREQ_GOV_ATTR_SET
+	select IRQ_WORK
+	help
+	  Use WALT runnable-window, new-task and related-thread-group load
+	  estimates to select CPU frequency. Exposes per-policy hispeed,
+	  predictive-load and up/down rate-limit controls. Hardware policy
+	  limits, including thermal limits, remain authoritative.
+
 comment "CPU frequency scaling drivers"
 
 config CPUFREQ_DT

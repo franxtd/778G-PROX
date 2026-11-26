@@ -1238,9 +1238,10 @@ static int do_process_madvise(struct task_struct *target_task,
 	return ret;
 }
 
-SYSCALL_DEFINE6(process_madvise, int, which, pid_t, upid,
-		const struct iovec __user *, vec, unsigned long, vlen,
-		int, behavior, unsigned long, flags)
+/* Linux 5.10 / Android process compaction ABI (syscall 440). */
+SYSCALL_DEFINE5(process_madvise, int, pidfd,
+		const struct iovec __user *, vec, size_t, vlen,
+		int, behavior, unsigned int, flags)
 {
 	ssize_t ret;
 	struct pid *pid;
@@ -1249,61 +1250,58 @@ SYSCALL_DEFINE6(process_madvise, int, which, pid_t, upid,
 	struct iovec iovstack[UIO_FASTIOV];
 	struct iovec *iov = iovstack;
 	struct iov_iter iter;
+	size_t total_len;
 
-	if (flags != 0)
+	if (flags || vlen > UIO_MAXIOV)
 		return -EINVAL;
 
-	switch (which) {
-	case P_PID:
-		if (upid <= 0)
-			return -EINVAL;
+#ifdef CONFIG_COMPAT
+	if (in_compat_syscall())
+		ret = compat_import_iovec(READ,
+			(const struct compat_iovec __user *)vec, vlen,
+			ARRAY_SIZE(iovstack), &iov, &iter);
+	else
+#endif
+		ret = import_iovec(READ, vec, vlen, ARRAY_SIZE(iovstack),
+				   &iov, &iter);
+	if (ret < 0)
+		return ret;
 
-		pid = find_get_pid(upid);
-		if (!pid)
-			return -ESRCH;
-		break;
-	case P_PIDFD:
-		if (upid < 0)
-			return -EINVAL;
-
-		pid = pidfd_get_pid(upid);
-		if (IS_ERR(pid))
-			return PTR_ERR(pid);
-		break;
-	default:
-		return -EINVAL;
+	pid = pidfd_get_pid(pidfd);
+	if (IS_ERR(pid)) {
+		ret = PTR_ERR(pid);
+		goto free_iov;
 	}
-
 	task = get_pid_task(pid, PIDTYPE_PID);
 	if (!task) {
 		ret = -ESRCH;
 		goto put_pid;
 	}
-
 	if (!process_madvise_behavior_valid(behavior)) {
 		ret = -EINVAL;
 		goto release_task;
 	}
-
-	mm = mm_access(task, PTRACE_MODE_ATTACH_FSCREDS);
+	mm = mm_access(task, PTRACE_MODE_READ_FSCREDS);
 	if (IS_ERR_OR_NULL(mm)) {
 		ret = IS_ERR(mm) ? PTR_ERR(mm) : -ESRCH;
 		goto release_task;
 	}
-
-	ret = import_iovec(READ, vec, vlen, ARRAY_SIZE(iovstack), &iov, &iter);
-	if (ret >= 0) {
-		size_t total_len = iov_iter_count(&iter);
-
-		ret = do_process_madvise(task, mm, &iter, behavior);
-		if (ret >= 0)
-			ret = total_len - iov_iter_count(&iter);
-		kfree(iov);
+	/* Remote reclaim is privileged, even when ptrace read access succeeds. */
+	if (!capable(CAP_SYS_NICE)) {
+		ret = -EPERM;
+		goto release_mm;
 	}
+	total_len = iov_iter_count(&iter);
+	ret = do_process_madvise(task, mm, &iter, behavior);
+	/* Report completed vectors even if a later vector fails. */
+	ret = (total_len - iov_iter_count(&iter)) ?: ret;
+release_mm:
 	mmput(mm);
 release_task:
 	put_task_struct(task);
 put_pid:
 	put_pid(pid);
+free_iov:
+	kfree(iov);
 	return ret;
 }

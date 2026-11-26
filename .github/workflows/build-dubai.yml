@@ -1,9 +1,9 @@
-name: FranBakaSU Dubai LOS21 Linux 5.4.286 + Gaming/FAS + UClamp Task Profiles
+name: FranBakaSU Dubai LOS21 Linux 5.4.286 + SUSFS + NoMount + WALT + Memory ABI + GPU DVFS
 
 on:
   workflow_dispatch:
   push:
-    branches: [work/dubai-uclamp-profiles-5.4]
+    branches: [work/dubai-walt-ram-gpu-5.4]
 
 permissions:
   contents: read
@@ -30,13 +30,8 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
-      - name: Check scheduler and task-profile regressions
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p logs
-          python3 ci/uclamp/test-sugov.py | tee logs/sugov-regressions.log
-          python3 ci/uclamp/test-profile.py | tee logs/uclamp-profile-tests.log
+      - name: Check performance source invariants
+        run: python3 ci/performance/check-source.py
       - name: Prepare tool cache
         id: tool-cache
         shell: bash
@@ -215,7 +210,8 @@ jobs:
           # Follow vendor/lineage/build/tasks/kernel.mk target ordering.
           make -j"$(nproc)" "${opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
           CC=clang${LLVM_SUFFIX} ci/fas/build-probe.sh out
-          CC=clang${LLVM_SUFFIX} ci/uclamp/build-probe.sh out
+          CC=clang${LLVM_SUFFIX} bash ci/performance/build-probe.sh out
+          make -j"$(nproc)" "${opts[@]}" M="$GITHUB_WORKSPACE/ci/performance/qemu-cpufreq" modules 2>&1 | tee logs/test-driver-build.log
           cp out/fas-feature-probe logs/
           make -j"$(nproc)" "${opts[@]}" "INSTALL_MOD_PATH=$GITHUB_WORKSPACE/module-install" INSTALL_MOD_STRIP=1 modules_install 2>&1 | tee logs/modules-install.log
           test -s out/include/config/kernel.release
@@ -245,6 +241,7 @@ jobs:
           test -s out/arch/arm64/boot/Image
           test -s out/vmlinux
           test -s out/Module.symvers
+          python3 ci/performance/verify-build.py out | tee logs/performance-abi.log
           readelf -h out/vmlinux | tee logs/elf-header.txt
           grep -q AArch64 logs/elf-header.txt
           python3 -c 'from pathlib import Path; p=Path("out/arch/arm64/boot/Image"); f=p.open("rb"); f.seek(56); assert f.read(4)==b"ARM\x64", "Invalid ARM64 Image magic"'
@@ -252,8 +249,6 @@ jobs:
           cp out/arch/arm64/boot/Image artifacts/
           cp out/.config artifacts/kernel.config
           cp out/Module.symvers out/System.map artifacts/
-          python3 ci/uclamp/verify-abi.py out | tee logs/uclamp-abi.json
-          python3 ci/uclamp/verify-build.py out | tee logs/uclamp-build.json
           find out/arch/arm64/boot/dts -type f \( -name '*.dtb' -o -name '*.dtbo' \) -print | sort | tee logs/device-trees.txt
           test -s logs/device-trees.txt
           tar -czf artifacts/device-trees.tar.gz -T logs/device-trees.txt
@@ -325,8 +320,9 @@ jobs:
           test -s "$ak/META-INF/com/google/android/update-binary"
           test -s "$ak/tools/ak3-core.sh"
           test -s "$ak/Image"
+          cp ci/performance/README.md "$ak/PERFORMANCE-NOTES.md"
           sh -n "$ak/anykernel.sh"
-          name="FranBakaSU-UClamp-Gaming-Dubai-LOS21-5.4.286-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
+          name="FranBakaSU-WALT-Memory-GPU-Dubai-LOS21-5.4.286-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
           output="$GITHUB_WORKSPACE/packages/$name"
           (cd "$ak" && zip -q -r -9 -y "$output" .)
           unzip -t "$output" | tee logs/anykernel-zip-check.txt
@@ -345,19 +341,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 ci/performance/run-qemu.py out/arch/arm64/boot/Image out/performance-probe ci/performance/qemu-cpufreq/fran_qemu_cpufreq.ko logs/performance-qemu.log
           python3 ci/fas/test-ram-profile.py | tee logs/ram-profile-tests.log
-          python3 ci/fas/run-qemu.py out/arch/arm64/boot/Image out/uclamp-feature-probe logs/qemu-probe.log
-          grep -q "UCLAMP_FEATURE_PROBE: PASS" logs/qemu-probe.log
+          python3 ci/fas/run-qemu.py out/arch/arm64/boot/Image out/fas-feature-probe logs/qemu-probe.log
           curl -fL --retry 3 https://github.com/shadow3aaa/fas-rs/releases/download/v4.9.1/fas-rs.zip -o "$RUNNER_TEMP/fas-upstream.zip"
           python3 ci/fas/package-module.py "$RUNNER_TEMP/fas-upstream.zip" out/fas-feature-probe packages/fas-rs-4.9.1-FranBakaSU-5.4.zip
-          python3 ci/uclamp/package-module.py "$RUNNER_TEMP/fas-upstream.zip" packages/FranBakaSU-UClamp-TaskProfiles-Dubai.zip
-          cp ci/uclamp/README.md packages/UCLAMP-LEIA-ME.md
           cp ci/GAMING.md packages/
           (cd packages && sha256sum *.zip > SHA256SUMS.txt)
       - name: Upload AnyKernel3 ZIP
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: FranBakaSU-UClamp-Gaming-Dubai-LOS21-AnyKernel3-${{ github.sha }}
+          name: FranBakaSU-WALT-Memory-GPU-Dubai-LOS21-AnyKernel3-${{ github.sha }}
           path: packages/
           if-no-files-found: error
           retention-days: 7
