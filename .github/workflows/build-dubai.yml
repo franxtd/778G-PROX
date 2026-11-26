@@ -1,9 +1,9 @@
-name: FranBakaSU Dubai LOS21 Linux 5.4.286 + SUSFS 2.4.0
+name: FranBakaSU Dubai LOS21 Linux 5.4.286 + SUSFS 2.4.0 + NoMount 2.3.1
 
 on:
   workflow_dispatch:
   push:
-    branches: [work/dubai-susfs-5.4]
+    branches: [work/dubai-susfs-nomount-5.4]
 
 permissions:
   contents: read
@@ -180,7 +180,7 @@ jobs:
           cp out/.config logs/kernel.config
           grep -qx 'CONFIG_ARM64=y' out/.config
           grep -qx 'CONFIG_ARCH_YUPIK=y' out/.config
-          for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SUS_MAP KSU_SUSFS_ENABLE_LOG SECURITY_SELINUX CFI_CLANG LTO_CLANG THINLTO MODULES MODVERSIONS; do
+          for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SUS_MAP KSU_SUSFS_ENABLE_LOG NOMOUNT KEYS SECURITY_SELINUX CFI_CLANG LTO_CLANG THINLTO MODULES MODVERSIONS; do
             grep -qx "CONFIG_$symbol=y" out/.config
           done
           grep -qx '# CONFIG_KSU_MANUAL_HOOK is not set' out/.config
@@ -196,7 +196,7 @@ jobs:
           # init/version.o generates compile.h via mkcompile_h.
           make -j"$(nproc)" "${opts[@]}" init/version.o 2>&1 | tee logs/compile-header.log
           test -s out/include/generated/compile.h
-          if ! make -k -j"$(nproc)" "${opts[@]}" drivers/kernelsu/ 2>&1 | tee logs/bakasu-preflight.log; then
+          if ! make -k -j"$(nproc)" "${opts[@]}" fs/nomount/ drivers/kernelsu/ 2>&1 | tee logs/bakasu-preflight.log; then
             {
               echo '### BakaSU compatibility preflight failed'
               echo '```text'
@@ -316,7 +316,7 @@ jobs:
           test -s "$ak/tools/ak3-core.sh"
           test -s "$ak/Image"
           sh -n "$ak/anykernel.sh"
-          name="FranBakaSU-SUSFS-2.4.0-Dubai-LOS21-5.4.286-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
+          name="FranBakaSU-SUSFS-NoMount-2.3.1-Dubai-LOS21-5.4.286-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
           output="$GITHUB_WORKSPACE/packages/$name"
           (cd "$ak" && zip -q -r -9 -y "$output" .)
           unzip -t "$output" | tee logs/anykernel-zip-check.txt
@@ -334,7 +334,7 @@ jobs:
       - name: Upload AnyKernel3 ZIP
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: FranBakaSU-SUSFS-Dubai-LOS21-AnyKernel3-${{ github.sha }}
+          name: FranBakaSU-SUSFS-NoMount-Dubai-LOS21-AnyKernel3-${{ github.sha }}
           path: packages/
           if-no-files-found: error
           retention-days: 7

@@ -18,6 +18,7 @@ obj-y :=	open.o read_write.o file_table.o super.o \
 		fs_types.o fs_context.o fs_parser.o fsopen.o
 
 obj-$(CONFIG_KSU_SUSFS) += susfs.o
+obj-$(CONFIG_NOMOUNT) += nomount/
 # susfs: kernel_read() changed signature in v4.14; some 4.9 backport the new one.
 # Detect by signature, not by version.
 ifeq ($(shell grep -q "ssize_t kernel_read" $(srctree)/fs/read_write.c $(srctree)/fs/exec.c 2>/dev/null; echo $$?),0)

@@ -1,0 +1,4 @@
+Repository: https://github.com/maxsteeel/nomount
+Release: v2.3.1
+Commit: dcd77d03e9912f397a586d7da81694d1628f170e
+Integration: built-in, CONFIG_NOMOUNT=y, Motorola dubai Linux 5.4.286
