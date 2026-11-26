@@ -188,6 +188,7 @@ jobs:
           # Match the ROM Kbuild target order, including each fragment olddefconfig.
           make "${opts[@]}" vendor/lahaina-qgki_defconfig vendor/lineage_moto-lahaina.config vendor/lineage_dubai.config 2>&1 | tee logs/config-merge.log
           cp out/.config logs/rom-config-before-root.txt
+          scripts/config --file out/.config --set-str LOCALVERSION "-FranBakaSU"
           scripts/config --file out/.config --enable KSU --enable KPROBES --enable KALLSYMS_ALL --enable EXT4_FS --enable HEADERS_INSTALL --enable KSU_MANUAL_HOOK --enable KSU_MANUAL_HOOK_AUTO_SETUID_HOOK --enable KSU_MANUAL_HOOK_AUTO_INITRC_HOOK --enable KSU_MANUAL_HOOK_AUTO_INPUT_HOOK --disable KSU_TRACEPOINT_HOOK --disable KSU_SUSFS --disable KSU_DEBUG --disable KSU_TOOLKIT_SUPPORT --disable KSU_DISABLE_MANAGER --disable KSU_DISABLE_POLICY
           make "${opts[@]}" olddefconfig 2>&1 | tee logs/config.log
           cp out/.config logs/kernel.config
@@ -223,7 +224,7 @@ jobs:
           make -j"$(nproc)" "${opts[@]}" dtbs 2>&1 | tee logs/dtbs.log
           make -k -j"$(nproc)" "${opts[@]}" modules 2>&1 | tee logs/modules-build.log
           make -j"$(nproc)" "${opts[@]}" "INSTALL_MOD_PATH=$GITHUB_WORKSPACE/module-install" INSTALL_MOD_STRIP=1 modules_install 2>&1 | tee logs/modules-install.log
-          test -s out/include/config/kernel.release
+          grep -Ex '5\.4\.286-FranBakaSU(-[^[:space:]]+)?' out/include/config/kernel.release
           test -d "module-install/lib/modules/$(cat out/include/config/kernel.release)"
       - name: Report ccache statistics
         if: ${{ !cancelled() && steps.ccache-init.outcome == 'success' }}
