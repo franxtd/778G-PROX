@@ -5,6 +5,9 @@
 #include <linux/of.h>
 
 static unsigned int current_khz = 800000;
+static unsigned int fast_calls, slow_calls;
+module_param(fast_calls, uint, 0444);
+module_param(slow_calls, uint, 0444);
 static struct cpufreq_frequency_table rates[] = {
 	{ .frequency = 800000 }, { .frequency = 1200000 },
 	{ .frequency = 2000000 }, { .frequency = CPUFREQ_TABLE_END },
@@ -15,11 +18,13 @@ static unsigned int get(unsigned int cpu)
 }
 static int target(struct cpufreq_policy *policy, unsigned int index)
 {
+	slow_calls++;
 	WRITE_ONCE(current_khz, rates[index].frequency);
 	return 0;
 }
 static unsigned int fast(struct cpufreq_policy *policy, unsigned int freq)
 {
+	fast_calls++;
 	WRITE_ONCE(current_khz, freq);
 	return freq;
 }

@@ -81,3 +81,8 @@ frame-time outliers and sustained performance rather than peak frequency.
 The boot-only AnyKernel3 package preserves the installed ramdisk and does
 not flash modules, DTB, DTBO or vendor_boot. ABI checks reduce one source
 of risk; they do not establish a boot guarantee for an untested ROM.
+
+Fast-path CI note: a second QEMU boot skips register_walt_callback in the
+guest command line. The real qcom driver instead registers its cycle counter
+and unregisters this notifier. Callback counters verify the fast/deferred
+paths; no accuracy or throughput claim is made for synthetic cycle accounting.

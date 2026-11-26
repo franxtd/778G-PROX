@@ -18,6 +18,7 @@ static int check(int ok,const char *name){say(ok?"PASS ":"FAIL: ");say(name);say
 static int put(const char *path,const char *value){long fd=sc(openat,-100,path,1,0,0,0);if(fd<0)return -1;long r=sc(write,fd,value,len(value),0,0,0);sc(close,fd,0,0,0,0,0);return r==(long)len(value)?0:-1;}
 static int readtext(const char *path,char *s,int n){long fd=sc(openat,-100,path,0,0,0,0);if(fd<0)return -1;long r=sc(read,fd,s,n-1,0,0,0);sc(close,fd,0,0,0,0,0);if(r<0)return -1;s[r]=0;return r;}
 static int contains(const char *s,const char *n){for(;*s;s++){usize i=0;while(n[i]&&s[i]==n[i])i++;if(!n[i])return 1;}return 0;}
+static int number(const char *s){int n=0;while(*s>='0'&&*s<='9')n=n*10+*s++-'0';return n;}
 #define P "/sys/devices/system/cpu/cpufreq/policy0/"
 static int memory_test(void)
 {
@@ -64,6 +65,12 @@ static int governor_test(const char *options)
   e+=check(readtext(P "scaling_cur_freq",buf,sizeof(buf))>0&&contains(buf,"800000"),"maximum enforced despite governor rate limit");
   e+=check(put(P "scaling_max_freq","2000000")==0&&put(P "scaling_governor","schedutil")==0,"switch back to original schedutil");
  }
+ char mode[16];int fast_boot=readtext("/qemu-mode",mode,sizeof(mode))>0&&contains(mode,"fast");
+ int fast_count=-1,slow_count=-1;
+ if(readtext("/sys/module/fran_qemu_cpufreq/parameters/fast_calls",buf,sizeof(buf))>0)fast_count=number(buf);
+ if(readtext("/sys/module/fran_qemu_cpufreq/parameters/slow_calls",buf,sizeof(buf))>0)slow_count=number(buf);
+ if(fast_boot&&!options[0])e+=check(fast_count>0,"hardware fast-switch callback actually executed");
+ else e+=check(fast_count==0&&slow_count>0,"deferred target callback actually executed");
  e+=check(sc(delete_module,"fran_qemu_cpufreq",0,0,0,0,0)==0,"unload virtual driver and governor cleanly");return e;
 }
 static int compat_test(void)
