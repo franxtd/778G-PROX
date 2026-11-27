@@ -632,7 +632,7 @@ endchoice
 config AUTOFDO_CLANG
 	bool "Prepare/use Clang AutoFDO profiles (experimental)"
 	depends on ARM64 && CC_IS_CLANG && CLANG_VERSION >= 170000
-	depends on THINLTO && DEBUG_INFO
+	depends on LTO_CLANG && DEBUG_INFO
 	help
 	  Add profiling discriminators to built-in kernel code. With
 	  CLANG_AUTOFDO_PROFILE set, use that LLVM sample profile for compiler

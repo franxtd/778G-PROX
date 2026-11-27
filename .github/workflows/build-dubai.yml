@@ -1,4 +1,4 @@
-name: FranBakaSU Dubai LOS21 Linux 5.4.286 + WALT + AutoFDO preparation
+name: FranBakaSU Dubai LOS21 Linux 5.4.286 + Full LTO + WALT + AutoFDO
 
 on:
   workflow_dispatch:
@@ -8,6 +8,11 @@ on:
         type: choice
         options: ['collect', 'off', 'profile']
         default: collect
+      lto_mode:
+        description: 'Full LTO by default; ThinLTO remains available for comparison'
+        type: choice
+        options: ['full', 'thin']
+        default: full
       profile_path:
         description: 'Repository path under ci/autofdo/profiles/, plus matching .json'
         type: string
@@ -27,6 +32,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
+      FRAN_LTO_MODE: ${{ inputs.lto_mode || 'full' }}
       AUTOFDO_MODE: ${{ inputs.autofdo_mode || 'collect' }}
       AUTOFDO_PROFILE_INPUT: ${{ inputs.profile_path || '' }}
       ARCH: arm64
@@ -155,6 +161,25 @@ jobs:
           ccache --max-size=3G
           ccache --zero-stats
           ccache --show-stats
+      - name: Prepare Full LTO link resources
+        if: env.FRAN_LTO_MODE == 'full'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # This is a disposable Actions runner, never the user's device.
+          available=$(df --output=avail -B1 "$RUNNER_TEMP" | tail -1)
+          if [ "$available" -lt 28991029248 ]; then
+            sudo rm -rf /usr/share/dotnet /usr/local/lib/android
+          fi
+          available=$(df --output=avail -B1 "$RUNNER_TEMP" | tail -1)
+          test "$available" -ge 21474836480
+          lto_swap="$RUNNER_TEMP/fran-full-lto.swap"
+          sudo fallocate -l 12G "$lto_swap"
+          sudo chmod 600 "$lto_swap"
+          sudo mkswap "$lto_swap"
+          sudo swapon "$lto_swap"
+          free -h
+          df -h "$RUNNER_TEMP"
       - name: Integrate pinned BakaSU (Built-In)
         shell: bash
         run: |
@@ -197,6 +222,13 @@ jobs:
           # Preserve the successful build-30 device configuration, adding SUSFS, NoMount and two optional governors.
           make "${opts[@]}" vendor/franbakasu_susfs_defconfig 2>&1 | tee logs/config-merge.log
           cp out/.config logs/susfs-reference.config
+          case "$FRAN_LTO_MODE" in
+            full) scripts/config --file out/.config -d THINLTO ;;
+            thin) scripts/config --file out/.config -e THINLTO ;;
+            *) echo 'Invalid LTO mode'; exit 1 ;;
+          esac
+          build_jobs=$(nproc)
+          if [ "$FRAN_LTO_MODE" = full ]; then build_jobs=2; fi
           case "$AUTOFDO_MODE" in
             collect|profile) scripts/config --file out/.config -e AUTOFDO_CLANG ;;
             off) scripts/config --file out/.config -d AUTOFDO_CLANG ;;
@@ -217,9 +249,14 @@ jobs:
           fi
           grep -qx 'CONFIG_ARM64=y' out/.config
           grep -qx 'CONFIG_ARCH_YUPIK=y' out/.config
-          for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SUS_MAP KSU_SUSFS_ENABLE_LOG NOMOUNT KEYS CPU_FREQ_GOV_ONDEMAND CPU_FREQ_GOV_USERSPACE BPF_SYSCALL BPF_JIT BPF_EVENTS UPROBE_EVENTS SECURITY_SELINUX CFI_CLANG LTO_CLANG THINLTO MODULES MODVERSIONS; do
+          for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SUS_MAP KSU_SUSFS_ENABLE_LOG NOMOUNT KEYS CPU_FREQ_GOV_ONDEMAND CPU_FREQ_GOV_USERSPACE BPF_SYSCALL BPF_JIT BPF_EVENTS UPROBE_EVENTS SECURITY_SELINUX CFI_CLANG LTO_CLANG MODULES MODVERSIONS; do
             grep -qx "CONFIG_$symbol=y" out/.config
           done
+          if [ "$FRAN_LTO_MODE" = full ]; then
+            grep -qx '# CONFIG_THINLTO is not set' out/.config
+          else
+            grep -qx 'CONFIG_THINLTO=y' out/.config
+          fi
           grep -qx '# CONFIG_KSU_MANUAL_HOOK is not set' out/.config
           for symbol in INPUT_TOUCHSCREEN_MMI TOUCHSCREEN_GOODIX_BRL RBS_FPS_MMI QCA_CLD_WLAN MOTO_F_USBNET WATCHDOGTEST SND_SOC_CS35L41 SND_SOC_CS35L45 ZRAM; do
             grep -qx "CONFIG_$symbol=m" out/.config
@@ -243,8 +280,8 @@ jobs:
             exit 1
           fi
           # Follow vendor/lineage/build/tasks/kernel.mk target ordering.
-          make -j"$(nproc)" "${opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
-          python3 ci/autofdo/verify.py out "$AUTOFDO_MODE" | tee logs/autofdo-flags.json
+          make -j"$build_jobs" "${opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
+          python3 ci/autofdo/verify.py out "$AUTOFDO_MODE" "$FRAN_LTO_MODE" | tee logs/autofdo-flags.json
           symbol_args=(out profiling-symbols --mode "$AUTOFDO_MODE")
           if [ "$AUTOFDO_MODE" = profile ]; then symbol_args+=(--profile "$AUTOFDO_PROFILE_INPUT"); fi
           python3 ci/autofdo/profile.py bundle "${symbol_args[@]}" | tee logs/autofdo-symbols.json
@@ -371,9 +408,11 @@ jobs:
           cp ci/autofdo/README.md "$ak/AUTOFDO-NOTES.md"
           cp ci/autofdo/device.sh "$ak/autofdo-device.sh"
           cp profiling-symbols/manifest.json "$ak/AUTOFDO-STATE.json"
-          sed -i "s/+ Memory\/GPU (experimental)/+ Memory\/GPU + AutoFDO $AUTOFDO_MODE (experimental)/" "$ak/anykernel.sh"
+          sed -i "s/+ Memory\/GPU (experimental)/+ Memory\/GPU + AutoFDO $AUTOFDO_MODE + $FRAN_LTO_MODE LTO (experimental)/" "$ak/anykernel.sh"
           sh -n "$ak/anykernel.sh"
-          name="FranBakaSU-AutoFDO-${AUTOFDO_MODE}-Dubai-LOS21-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
+          lto_name=FullLTO
+          if [ "$FRAN_LTO_MODE" = thin ]; then lto_name=ThinLTO; fi
+          name="FranBakaSU-${lto_name}-AutoFDO-${AUTOFDO_MODE}-Dubai-LOS21-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
           output="$GITHUB_WORKSPACE/packages/$name"
           (cd "$ak" && zip -q -r -9 -y "$output" .)
           unzip -t "$output" | tee logs/anykernel-zip-check.txt
@@ -388,16 +427,14 @@ jobs:
           PY
           (cd packages && sha256sum "$name" > SHA256SUMS.txt)
           echo "Generated experimental boot-only AnyKernel3 ZIP: $name" >> "$GITHUB_STEP_SUMMARY"
-      - name: Validate BPF and package fas-rs compatibility module
+      - name: Validate WALT, memory and FAS kernel support
         shell: bash
         run: |
           set -euo pipefail
           python3 ci/performance/run-qemu.py out/arch/arm64/boot/Image out/performance-probe ci/performance/qemu-cpufreq/fran_qemu_cpufreq.ko logs/performance-qemu.log
-          python3 ci/fas/test-ram-profile.py | tee logs/ram-profile-tests.log
           python3 ci/fas/run-qemu.py out/arch/arm64/boot/Image out/fas-feature-probe logs/qemu-probe.log
-          curl -fL --retry 3 https://github.com/shadow3aaa/fas-rs/releases/download/v4.9.1/fas-rs.zip -o "$RUNNER_TEMP/fas-upstream.zip"
-          python3 ci/fas/package-module.py "$RUNNER_TEMP/fas-upstream.zip" out/fas-feature-probe packages/fas-rs-4.9.1-FranBakaSU-5.4.zip
-          cp ci/GAMING.md packages/
+          cp ci/performance/AOSPA-REVIEW.md packages/
+          cp ci/autofdo/README.md packages/AUTOFDO-README.md
           (cd packages && sha256sum *.zip > SHA256SUMS.txt)
       - name: Upload AnyKernel3 ZIP
         uses: actions/upload-artifact@v7.0.2

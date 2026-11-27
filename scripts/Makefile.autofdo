@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0
 # Backported from Android common android15-6.6-2025-03_r8.
-# This 5.4 tree calls ThinLTO CONFIG_THINLTO. Optimize vmlinux only.
+# Supports Full LTO and this 5.4 tree's CONFIG_THINLTO. Optimize vmlinux only.
 CFLAGS_AUTOFDO_CLANG := -fdebug-info-for-profiling -mllvm -enable-fs-discriminator=true -mllvm -improved-fs-discriminator=true
 ifndef CONFIG_DEBUG_INFO
 CFLAGS_AUTOFDO_CLANG += -gline-tables-only

@@ -7,12 +7,13 @@ otimizado por AutoFDO**. Sem dados reais do aparelho não há ganho medido.
 ## O que foi integrado
 
 * CONFIG_AUTOFDO_CLANG, baseado no Android common 6.6 e adaptado ao
-  CONFIG_THINLTO desta árvore 5.4, com Clang 23 fixado no workflow.
+  Full LTO e CONFIG_THINLTO desta árvore 5.4, com Clang 23 fixado.
+  Full LTO é o padrão; ThinLTO fica disponível para comparação.
 * Discriminadores e informação de debug para associar amostras ao código.
 * CLANG_AUTOFDO_PROFILE para o compilador e o backend ThinLTO do vmlinux.
 * Módulos, vDSO e stub EFI fora do perfil. Dependências de arquivo garantem
   recompilação quando o perfil muda, mesmo conservando o nome.
-* Teste real do roteamento de flags do Kbuild e teste LLVM/ThinLTO/CFI com
+* Teste real do roteamento de flags do Kbuild e teste LLVM/Full LTO/ThinLTO/CFI com
   um perfil sintético restrito a um pequeno programa de teste. Esse perfil
   nunca é usado no kernel entregue.
 * Bundle do vmlinux com debug, build ID, kernel.notes, configuração e hashes.
@@ -98,7 +99,10 @@ make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
 ```
 
 Use também as mesmas opções e ferramentas do workflow fixado no repositório.
-No Actions, workflow_dispatch oferece collect, off e profile. Para profile,
+No Actions, workflow_dispatch oferece collect, off e profile, e seleção de
+Full/Thin LTO. Consulte ../performance/AOSPA-REVIEW.md para os patches de
+memória/idle avaliados. O gerador de ZIP do módulo fas-rs foi removido; o
+suporte do kernel e os testes BPF foram mantidos. Para profile,
 adicione o perfil e seu JSON em ci/autofdo/profiles/ no branch e indique o
 caminho relativo; essa entrada é validada antes de compilar.
 

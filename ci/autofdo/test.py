@@ -46,13 +46,14 @@ with tempfile.TemporaryDirectory() as td:
         else:raise AssertionError('Empty profile accepted')
         source=td/'smoke.c';source.write_text('__attribute__((noinline)) int afdo_smoke(int x) {\n if (x) return x+1;\n return 0;\n}\nint entry(void) { return afdo_smoke(1); }\n')
         f=flags('afdo-test/builtin.o',[f'CLANG_AUTOFDO_PROFILE={sample}']).split()
-        subprocess.run(['clang','--target=aarch64-linux-gnu','-O2','-g','-flto=thin',*f,
-            '-S','-emit-llvm',str(source),'-o',str(td/'smoke.ll')],check=True)
-        ir=(td/'smoke.ll').read_text()
-        assert 'function_entry_count' in ir and '!prof' in ir
-        subprocess.run(['clang','--target=aarch64-linux-gnu','-O2','-g','-flto=thin',
-            '-fsanitize=cfi','-fvisibility=hidden',*f,'-fuse-ld=lld','-nostdlib',
-            f'-Wl,--lto-sample-profile={sample}','-Wl,--mllvm=-enable-fs-discriminator=true',
-            '-Wl,--mllvm=-improved-fs-discriminator=true','-Wl,-e,entry',str(source),'-o',str(td/'smoke')],check=True)
-        print('PASS LLVM: sample reader, nonzero samples, IR profile metadata and ARM64 ThinLTO/CFI link')
+        for lto in ['thin','full']:
+            subprocess.run(['clang','--target=aarch64-linux-gnu','-O2','-g',f'-flto={lto}',*f,
+                '-S','-emit-llvm',str(source),'-o',str(td/'smoke.ll')],check=True)
+            ir=(td/'smoke.ll').read_text()
+            assert 'function_entry_count' in ir and '!prof' in ir
+            subprocess.run(['clang','--target=aarch64-linux-gnu','-O2','-g',f'-flto={lto}',
+                '-fsanitize=cfi','-fvisibility=hidden',*f,'-fuse-ld=lld','-nostdlib',
+                f'-Wl,--lto-sample-profile={sample}','-Wl,--mllvm=-enable-fs-discriminator=true',
+                '-Wl,--mllvm=-improved-fs-discriminator=true','-Wl,-e,entry',str(source),'-o',str(td/'smoke')],check=True)
+            print(f'PASS LLVM: sample reader, profile metadata and ARM64 {lto} LTO/CFI link')
         print('Synthetic profile was used only for this tiny compiler fixture; no device performance claim.')

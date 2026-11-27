@@ -78,7 +78,8 @@ def bundle(out, dest, mode='collect', profile=None):
               'kernel_notes_sha256':sha(dest/'kernel.notes'),'build_id':m[1].lower(),
               'toolchain_revision':TOOLCHAIN_REVISION,
               'bakasu_revision':actual_su,
-              'profile_applied':mode=='profile','device_trace_collected':mode=='profile'}
+              'profile_applied':mode=='profile','device_trace_collected':mode=='profile',
+              'lto_mode':'thin' if 'CONFIG_THINLTO=y' in config.read_text().splitlines() else 'full'}
     if mode=='profile':
         if not profile:raise ValueError('Profile required for optimized mode')
         manifest['applied_profile']=validate(profile,config)

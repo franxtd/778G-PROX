@@ -1,5 +1,9 @@
 # fas-rs 4.9.1 / FranBakaSU 5.4 compatibility
 
+Historical module sources and current kernel feature tests. The module ZIP
+generator has been removed from the current build workflow. Instructions below
+for installing a module refer to the previously delivered compatibility ZIP.
+
 Target: Motorola Edge 30 (dubai), LOS 21 / Android 14, Linux 5.4.286.
 This is a compatibility package, maintained separately from upstream fas-rs.
 The official v4.9.1 daemon is included unchanged; its SHA-256 and source tag are
@@ -51,18 +55,17 @@ module stops its service at the next boot. Runtime settings reset on reboot.
 them automatically. fas-rs controls cpufreq min/max limits and requires no new
 special governor. Running multiple frequency-control modules may conflict.
 
-## Rebuild
+## Kernel feature test (module ZIP generation removed)
 
 With the pinned BakaSU source present and the kernel UAPI headers installed:
 
 ```sh
 CC=clang ci/fas/build-probe.sh out
 python3 ci/fas/run-qemu.py out/arch/arm64/boot/Image out/fas-feature-probe qemu.log
-curl -fL https://github.com/shadow3aaa/fas-rs/releases/download/v4.9.1/fas-rs.zip -o upstream.zip
-python3 ci/fas/package-module.py upstream.zip out/fas-feature-probe fas-rs-fran-5.4.zip
 ```
 
-The packager checks the upstream archive and daemon hashes before packaging.
+The current kernel workflow no longer downloads or builds a fas-rs module ZIP.
+The already installed module is independent of this removal.
 The static probe needs no Android libc or Rust toolchain. Full fas-rs source is at
 https://github.com/shadow3aaa/fas-rs/tree/eb883c534e92107f536ae8ebc343c99243f5ee4d
 and is licensed GPL-3.0-or-later. The embedded BPF program is GPL-3.0-or-later.

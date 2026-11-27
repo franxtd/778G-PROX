@@ -31,6 +31,7 @@ for mode in ['normal','fast']:
         archive += entry('dev/console',0o020600,major=5,minor=1)
         for n,p in [('init',probe),('compat-probe',probe.parent/'compat-probe'),('fran_qemu_cpufreq.ko',module)]:
             archive += entry(n,0o100755,p.read_bytes())
+        archive += entry('zram.ko',0o100600,(probe.parent/'drivers/block/zram/zram.ko').read_bytes())
         archive += entry('qemu-mode',0o100444,mode.encode())+entry('TRAILER!!!',0)
         initrd.write_bytes(gzip.compress(archive,mtime=0))
         command = [os.environ.get('QEMU_BINARY','qemu-system-aarch64'),'-M','virt',

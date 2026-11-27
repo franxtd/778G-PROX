@@ -1,3 +1,8 @@
+> Nota da revisão Full LTO/AutoFDO: este documento registra a integração FAS
+> anterior. O workflow atual não gera ZIP de módulo fas-rs. O kernel usa
+> Full LTO por padrão, preserva CFI e mantém os testes BPF. Consulte
+> `autofdo/README.md` e `performance/AOSPA-REVIEW.md` para o estado atual.
+
 # Dubai 5.4.286: gaming/FAS compatibility build
 
 Base: `afef2f1aaf50ef70583e86ba100837eb6e751b96` (working NoMount integration).

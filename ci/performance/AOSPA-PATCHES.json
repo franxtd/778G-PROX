@@ -1,0 +1,23 @@
+{
+  "repository": "AOSPA/android_kernel_motorola_sm7325",
+  "branch": "uvite",
+  "snapshot": "c7b94bfc09cde1e8be7e32a65809f1b3bec98f3f",
+  "applied": [
+    {
+      "sha": "27f83c591797b0accecc62bebbc6ba2ab70be76a",
+      "files": [
+        "mm/madvise.c"
+      ],
+      "kind": "private COW pageout permission fix"
+    },
+    {
+      "sha": "cfb5aec2896d48f1e32c20c797344f61e6d3a858",
+      "files": [
+        "drivers/cpuidle/lpm-levels.c"
+      ],
+      "kind": "remove private idle debug ring overhead"
+    }
+  ],
+  "fps_gain_measured": false,
+  "gpu_opp_or_thermal_changes": false
+}
