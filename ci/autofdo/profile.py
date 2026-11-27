@@ -79,6 +79,7 @@ def bundle(out, dest, mode='collect', profile=None):
               'toolchain_revision':TOOLCHAIN_REVISION,
               'bakasu_revision':actual_su,
               'profile_applied':mode=='profile','device_trace_collected':mode=='profile',
+              'profiling_debug_info':'line-tables-only' if mode!='off' else 'baseline',
               'lto_mode':'thin' if 'CONFIG_THINLTO=y' in config.read_text().splitlines() else 'full'}
     if mode=='profile':
         if not profile:raise ValueError('Profile required for optimized mode')

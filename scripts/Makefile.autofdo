@@ -2,9 +2,9 @@
 # Backported from Android common android15-6.6-2025-03_r8.
 # Supports Full LTO and this 5.4 tree's CONFIG_THINLTO. Optimize vmlinux only.
 CFLAGS_AUTOFDO_CLANG := -fdebug-info-for-profiling -mllvm -enable-fs-discriminator=true -mllvm -improved-fs-discriminator=true
-ifndef CONFIG_DEBUG_INFO
+# Line tables and inline locations are sufficient for sample-profile mapping.
+# Avoid retaining full variable/type DWARF in the monolithic Full LTO module.
 CFLAGS_AUTOFDO_CLANG += -gline-tables-only
-endif
 
 ifdef CLANG_AUTOFDO_PROFILE
 ifneq ($(words $(CLANG_AUTOFDO_PROFILE)),1)

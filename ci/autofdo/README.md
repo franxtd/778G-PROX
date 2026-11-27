@@ -10,6 +10,9 @@ otimizado por AutoFDO**. Sem dados reais do aparelho não há ganho medido.
   Full LTO e CONFIG_THINLTO desta árvore 5.4, com Clang 23 fixado.
   Full LTO é o padrão; ThinLTO fica disponível para comparação.
 * Discriminadores e informação de debug para associar amostras ao código.
+  Os objetos perfilados usam -gline-tables-only: o vmlinux mantém nomes,
+  linhas e locais inline para AutoFDO, sem o DWARF completo de variáveis e
+  tipos desses objetos. Isso reduz a pressão de memória do Full LTO.
 * CLANG_AUTOFDO_PROFILE para o compilador e o backend ThinLTO do vmlinux.
 * Módulos, vDSO e stub EFI fora do perfil. Dependências de arquivo garantem
   recompilação quando o perfil muda, mesmo conservando o nome.
@@ -19,6 +22,10 @@ otimizado por AutoFDO**. Sem dados reais do aparelho não há ganho medido.
 * Bundle do vmlinux com debug, build ID, kernel.notes, configuração e hashes.
 * Conversão ETM e validação de identidade do binário, perfil não vazio,
   código do kernel, configuração e revisão do compilador.
+* Compilação e link separados, cache salvo antes do link e cgroup limitado
+  no runner para reservar recursos ao agente do CI. A primeira tentativa
+  Full LTO perdeu comunicação com o runner, sem logs finais disponíveis;
+  a anotação não identificou a causa exata.
 * WALT, correção process_madvise, prioridade da fila de GPU, BakaSU, SUSFS,
   NoMount e FAS da revisão eb1abf13 preservados.
 

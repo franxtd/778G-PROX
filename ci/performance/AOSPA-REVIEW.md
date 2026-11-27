@@ -37,6 +37,9 @@ O defconfig passa a selecionar Full LTO: CONFIG_LTO_CLANG=y e
 CONFIG_THINLTO desativado. O workflow oferece Full e Thin para comparação,
 testa o consumo de perfis nos dois modos com um programa sintético e usa
 recursos de memória/swap apenas no runner de compilação. CFI permanece.
+Os objetos AutoFDO usam tabelas de linhas, nomes e locais inline em vez de
+debug completo de variáveis/tipos. O CI salva o cache antes do link e limita
+o grupo de compilação para reservar memória ao processo do runner.
 
 O build collect/PREPARE adiciona metadados de coleta de AutoFDO. Sem um perfil
 real do aparelho, ele não é um build otimizado por AutoFDO. Full LTO também

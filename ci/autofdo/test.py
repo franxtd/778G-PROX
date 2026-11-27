@@ -28,6 +28,7 @@ with tempfile.TemporaryDirectory() as td:
     def flags(target,extra=()):
         return subprocess.check_output(['make','--no-print-directory','-s','-f',str(mk),target,*extra],cwd=root,text=True).strip()
     assert '-fdebug-info-for-profiling' in flags('afdo-test/builtin.o')
+    assert '-gline-tables-only' in flags('afdo-test/builtin.o')
     assert '-fdebug-info-for-profiling' not in flags('afdo-test/module.o')
     assert '-fdebug-info-for-profiling' not in flags('afdo-test/excluded.o')
     assert '-fdebug-info-for-profiling' not in flags('afdo-test/builtin.o',['CONFIG_AUTOFDO_CLANG=n'])

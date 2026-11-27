@@ -1213,6 +1213,11 @@ cmd_link-vmlinux =                                                 \
 vmlinux: scripts/link-vmlinux.sh autoksyms_recursive $(vmlinux-deps) FORCE
 	+$(call if_changed,link-vmlinux)
 
+# Compile the normal built-in graph without starting the memory-heavy LTO link.
+# CI can checkpoint the compiler cache before linking on a constrained host.
+PHONY += vmlinux-objects
+vmlinux-objects: autoksyms_recursive $(vmlinux-deps)
+
 targets := vmlinux
 
 # The actual objects are generated when descending,
