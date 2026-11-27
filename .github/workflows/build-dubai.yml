@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: dubai-kernel-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -133,7 +133,10 @@ jobs:
           path: ${{ runner.temp }}/android-clang
           key: dubai-aosp-toolchain-v2-ubuntu24-${{ runner.arch }}-clang-r614150-16fae8ef
       - name: Check AutoFDO compiler and profile reader
-        run: python3 ci/autofdo/test.py --llvm | tee logs/autofdo-tool-tests.log
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ci/autofdo/test.py --llvm | tee logs/autofdo-tool-tests.log
       - name: Restore ccache
         id: ccache-restore
         uses: actions/cache/restore@v6.1.0

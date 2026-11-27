@@ -17,6 +17,7 @@ def run(args, **kwargs):
 
 def source_id():
     # Profile/CI/doc updates can change the commit without changing kernel code.
+    subprocess.run(['git','diff','--quiet','HEAD'],cwd=ROOT,check=True)
     lines = run(['git','ls-files','-s'], cwd=ROOT).splitlines()
     selected = [s for s in lines if not s.split('\t',1)[1].startswith(
         ('ci/','.github/','Documentation/'))]
