@@ -629,6 +629,19 @@ config LTO_CLANG
 
 endchoice
 
+config AUTOFDO_CLANG
+	bool "Prepare/use Clang AutoFDO profiles (experimental)"
+	depends on ARM64 && CC_IS_CLANG && CLANG_VERSION >= 170000
+	depends on THINLTO && DEBUG_INFO
+	help
+	  Add profiling discriminators to built-in kernel code. With
+	  CLANG_AUTOFDO_PROFILE set, use that LLVM sample profile for compiler
+	  and ThinLTO optimization. Without a profile this only prepares debug
+	  information for collection and does not promise a performance gain.
+	  Modules retain their original compilation flags.
+
+	  If unsure, say N.
+
 config CFI_CLANG
 	bool "Use Clang's Control Flow Integrity (CFI)"
 	depends on LTO_CLANG && KALLSYMS

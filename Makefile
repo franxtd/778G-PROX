@@ -948,6 +948,10 @@ KBUILD_CFLAGS	+= $(CC_FLAGS_LTO)
 export CC_FLAGS_LTO
 endif
 
+ifdef CONFIG_AUTOFDO_CLANG
+include scripts/Makefile.autofdo
+endif
+
 ifdef CONFIG_CFI_CLANG
 CC_FLAGS_CFI	:= -fsanitize=cfi \
 		   -fno-sanitize-cfi-canonical-jump-tables \

@@ -1,0 +1,15 @@
+{
+  "commit": "b15d6439553b1a5a266ca8e0f813481f55d991dd",
+  "ref": "refs/tags/android15-6.6-2025-03_r8",
+  "source_blob": "ff96a63fea7cd12a13649d6c6261449b430e2023",
+  "repository": "https://android.googlesource.com/kernel/common",
+  "path": "scripts/Makefile.autofdo",
+  "baseline_commit": "eb1abf132dd7a19f8cef8c2bd4f220980adfbad3",
+  "changes": [
+    "CONFIG_THINLTO name for 5.4",
+    "built-in-only flag routing",
+    "strict profile file and provenance checks",
+    "no machine-function splitting backport",
+    "no ETM hardware/firmware changes"
+  ]
+}

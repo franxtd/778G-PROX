@@ -43,6 +43,14 @@ include $(kbuild-file)
 
 include scripts/Makefile.lib
 
+# A changed profile must invalidate built-in objects even at the same path.
+ifdef CONFIG_AUTOFDO_CLANG
+ifneq ($(CLANG_AFDO_PROFILE_ABS),)
+$(filter %.o,$(real-obj-y)): $(CLANG_AFDO_PROFILE_ABS)
+endif
+endif
+
+
 # Do not include host rules unless needed
 ifneq ($(hostprogs-y)$(hostprogs-m)$(hostlibs-y)$(hostlibs-m)$(hostcxxlibs-y)$(hostcxxlibs-m),)
 include scripts/Makefile.host

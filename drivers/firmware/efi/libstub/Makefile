@@ -105,3 +105,6 @@ quiet_cmd_stubcopy = STUBCPY $@
 #
 STUBCOPY_FLAGS-$(CONFIG_ARM)	+= --rename-section .data=.data.efistub
 STUBCOPY_RELOC-$(CONFIG_ARM)	:= R_ARM_ABS
+
+# Userspace/firmware objects are outside the kernel AutoFDO profile.
+AUTOFDO_PROFILE := n

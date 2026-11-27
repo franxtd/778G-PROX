@@ -85,3 +85,6 @@ vdso.so: $(obj)/vdso.so.dbg
 	$(call cmd,vdso_install)
 
 vdso_install: vdso.so
+
+# Userspace/firmware objects are outside the kernel AutoFDO profile.
+AUTOFDO_PROFILE := n

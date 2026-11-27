@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-2.0
+# Backported from Android common android15-6.6-2025-03_r8.
+# This 5.4 tree calls ThinLTO CONFIG_THINLTO. Optimize vmlinux only.
+CFLAGS_AUTOFDO_CLANG := -fdebug-info-for-profiling -mllvm -enable-fs-discriminator=true -mllvm -improved-fs-discriminator=true
+ifndef CONFIG_DEBUG_INFO
+CFLAGS_AUTOFDO_CLANG += -gline-tables-only
+endif
+
+ifdef CLANG_AUTOFDO_PROFILE
+ifneq ($(words $(CLANG_AUTOFDO_PROFILE)),1)
+$(error CLANG_AUTOFDO_PROFILE must be a single path without whitespace)
+endif
+CLANG_AFDO_PROFILE_ABS := $(abspath $(CLANG_AUTOFDO_PROFILE))
+ifeq ($(wildcard $(CLANG_AFDO_PROFILE_ABS)),)
+$(error AutoFDO profile does not exist: $(CLANG_AFDO_PROFILE_ABS))
+endif
+CFLAGS_AUTOFDO_CLANG += -fprofile-sample-use=$(CLANG_AFDO_PROFILE_ABS)
+KBUILD_LDFLAGS += --lto-sample-profile=$(CLANG_AFDO_PROFILE_ABS)
+export CLANG_AFDO_PROFILE_ABS
+endif
+
+# Module link flags are deliberately unchanged.
+KBUILD_LDFLAGS += --mllvm=-enable-fs-discriminator=true --mllvm=-improved-fs-discriminator=true
+export CFLAGS_AUTOFDO_CLANG

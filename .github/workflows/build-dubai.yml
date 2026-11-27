@@ -1,9 +1,19 @@
-name: FranBakaSU Dubai LOS21 Linux 5.4.286 + SUSFS + NoMount + WALT + Memory ABI + GPU DVFS
+name: FranBakaSU Dubai LOS21 Linux 5.4.286 + WALT + AutoFDO preparation
 
 on:
   workflow_dispatch:
+    inputs:
+      autofdo_mode:
+        description: 'collect prepares debug data; profile requires real device data'
+        type: choice
+        options: ['collect', 'off', 'profile']
+        default: collect
+      profile_path:
+        description: 'Repository path under ci/autofdo/profiles/, plus matching .json'
+        type: string
+        default: ''
   push:
-    branches: [work/dubai-walt-ram-gpu-5.4]
+    branches: [work/dubai-autofdo-5.4]
 
 permissions:
   contents: read
@@ -17,6 +27,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
+      AUTOFDO_MODE: ${{ inputs.autofdo_mode || 'collect' }}
+      AUTOFDO_PROFILE_INPUT: ${{ inputs.profile_path || '' }}
       ARCH: arm64
       SUBARCH: arm64
       KBUILD_BUILD_USER: github
@@ -32,6 +44,8 @@ jobs:
           persist-credentials: false
       - name: Check performance source invariants
         run: python3 ci/performance/check-source.py
+      - name: Check AutoFDO Kbuild routing
+        run: python3 ci/autofdo/test.py
       - name: Prepare tool cache
         id: tool-cache
         shell: bash
@@ -89,7 +103,7 @@ jobs:
           revision=16fae8ef5b856b1d3e02a55274e4327c5842bb34
           valid_toolchain() {
             test -f "$tc/.aosp-revision" && test "$(cat "$tc/.aosp-revision")" = "$revision" || return 1
-            for tool in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-readelf llvm-strip; do
+            for tool in clang clang++ ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-readelf llvm-strip llvm-profdata; do
               test -x "$tc/bin/$tool" || return 1
             done
             "$tc/bin/clang" --version
@@ -118,6 +132,8 @@ jobs:
         with:
           path: ${{ runner.temp }}/android-clang
           key: dubai-aosp-toolchain-v2-ubuntu24-${{ runner.arch }}-clang-r614150-16fae8ef
+      - name: Check AutoFDO compiler and profile reader
+        run: python3 ci/autofdo/test.py --llvm | tee logs/autofdo-tool-tests.log
       - name: Restore ccache
         id: ccache-restore
         uses: actions/cache/restore@v6.1.0
@@ -178,8 +194,24 @@ jobs:
           # Preserve the successful build-30 device configuration, adding SUSFS, NoMount and two optional governors.
           make "${opts[@]}" vendor/franbakasu_susfs_defconfig 2>&1 | tee logs/config-merge.log
           cp out/.config logs/susfs-reference.config
+          case "$AUTOFDO_MODE" in
+            collect|profile) scripts/config --file out/.config -e AUTOFDO_CLANG ;;
+            off) scripts/config --file out/.config -d AUTOFDO_CLANG ;;
+            *) echo 'Invalid AutoFDO mode'; exit 1 ;;
+          esac
           make "${opts[@]}" olddefconfig 2>&1 | tee logs/config.log
           cp out/.config logs/kernel.config
+          if [ "$AUTOFDO_MODE" = profile ]; then
+            python3 - <<'PYVALIDATE'
+          import os,re
+          from pathlib import Path
+          p=os.environ['AUTOFDO_PROFILE_INPUT']
+          assert re.fullmatch(r'ci/autofdo/profiles/[A-Za-z0-9_./-]+',p), 'Invalid profile path'
+          assert Path(p).is_file() and Path(p).resolve().is_relative_to(Path.cwd()/'ci/autofdo/profiles')
+          PYVALIDATE
+            python3 ci/autofdo/profile.py validate "$AUTOFDO_PROFILE_INPUT" out/.config | tee logs/autofdo-profile-validation.json
+            opts+=("CLANG_AUTOFDO_PROFILE=$GITHUB_WORKSPACE/$AUTOFDO_PROFILE_INPUT")
+          fi
           grep -qx 'CONFIG_ARM64=y' out/.config
           grep -qx 'CONFIG_ARCH_YUPIK=y' out/.config
           for symbol in KSU KPROBES KALLSYMS_ALL EXT4_FS KSU_SUSFS KSU_SUSFS_SUS_PATH KSU_SUSFS_SUS_MOUNT KSU_SUSFS_SUS_KSTAT KSU_SUSFS_SUS_MAP KSU_SUSFS_ENABLE_LOG NOMOUNT KEYS CPU_FREQ_GOV_ONDEMAND CPU_FREQ_GOV_USERSPACE BPF_SYSCALL BPF_JIT BPF_EVENTS UPROBE_EVENTS SECURITY_SELINUX CFI_CLANG LTO_CLANG THINLTO MODULES MODVERSIONS; do
@@ -209,6 +241,10 @@ jobs:
           fi
           # Follow vendor/lineage/build/tasks/kernel.mk target ordering.
           make -j"$(nproc)" "${opts[@]}" Image dtbs modules 2>&1 | tee logs/build.log
+          python3 ci/autofdo/verify.py out "$AUTOFDO_MODE" | tee logs/autofdo-flags.json
+          symbol_args=(out profiling-symbols --mode "$AUTOFDO_MODE")
+          if [ "$AUTOFDO_MODE" = profile ]; then symbol_args+=(--profile "$AUTOFDO_PROFILE_INPUT"); fi
+          python3 ci/autofdo/profile.py bundle "${symbol_args[@]}" | tee logs/autofdo-symbols.json
           CC=clang${LLVM_SUFFIX} ci/fas/build-probe.sh out
           CC=clang${LLVM_SUFFIX} bash ci/performance/build-probe.sh out
           make -j"$(nproc)" "${opts[@]}" M="$GITHUB_WORKSPACE/ci/performance/qemu-cpufreq" modules 2>&1 | tee logs/test-driver-build.log
@@ -216,6 +252,14 @@ jobs:
           make -j"$(nproc)" "${opts[@]}" "INSTALL_MOD_PATH=$GITHUB_WORKSPACE/module-install" INSTALL_MOD_STRIP=1 modules_install 2>&1 | tee logs/modules-install.log
           test -s out/include/config/kernel.release
           test -d "module-install/lib/modules/$(cat out/include/config/kernel.release)"
+      - name: Upload matching AutoFDO symbol bundle
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: FranBakaSU-AutoFDO-Symbols-${{ github.sha }}
+          path: profiling-symbols/
+          compression-level: 6
+          if-no-files-found: error
+          retention-days: 14
       - name: Report ccache statistics
         if: ${{ !cancelled() && steps.ccache-init.outcome == 'success' }}
         shell: bash
@@ -321,8 +365,12 @@ jobs:
           test -s "$ak/tools/ak3-core.sh"
           test -s "$ak/Image"
           cp ci/performance/README.md "$ak/PERFORMANCE-NOTES.md"
+          cp ci/autofdo/README.md "$ak/AUTOFDO-NOTES.md"
+          cp ci/autofdo/device.sh "$ak/autofdo-device.sh"
+          cp profiling-symbols/manifest.json "$ak/AUTOFDO-STATE.json"
+          sed -i "s/+ Memory\/GPU (experimental)/+ Memory\/GPU + AutoFDO $AUTOFDO_MODE (experimental)/" "$ak/anykernel.sh"
           sh -n "$ak/anykernel.sh"
-          name="FranBakaSU-WALT-Memory-GPU-Dubai-LOS21-5.4.286-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
+          name="FranBakaSU-AutoFDO-${AUTOFDO_MODE}-Dubai-LOS21-EXPERIMENTAL-${GITHUB_SHA:0:8}.zip"
           output="$GITHUB_WORKSPACE/packages/$name"
           (cd "$ak" && zip -q -r -9 -y "$output" .)
           unzip -t "$output" | tee logs/anykernel-zip-check.txt
@@ -351,7 +399,7 @@ jobs:
       - name: Upload AnyKernel3 ZIP
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: FranBakaSU-WALT-Memory-GPU-Dubai-LOS21-AnyKernel3-${{ github.sha }}
+          name: FranBakaSU-AutoFDO-Dubai-LOS21-AnyKernel3-${{ github.sha }}
           path: packages/
           if-no-files-found: error
           retention-days: 7
