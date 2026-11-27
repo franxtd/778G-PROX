@@ -93,19 +93,29 @@ def convert(trace, symbols, output):
     if sha(symbols/'vmlinux')!=m['vmlinux_sha256']:
         raise ValueError('Symbol ELF hash mismatch')
     output.parent.mkdir(parents=True,exist_ok=True)
+    kind_file=trace/'capture-kind.txt'
+    kind=kind_file.read_text().strip() if kind_file.exists() else 'etm'
+    if kind not in ('etm','pc'):raise ValueError('Unknown capture format')
+    trace_file=trace/('perf.data' if kind=='pc' else 'branch.data')
     with tempfile.TemporaryDirectory() as td:
         raw=Path(td)/'kernel.autofdo'; afdo=Path(td)/'kernel.afdo'
-        subprocess.run(['simpleperf','inject','-i',str(trace/'branch.data'),
-            '--binary','kernel.kallsyms','--symdir',str(symbols),'-o',str(raw)],check=True)
-        if not raw.is_file() or not raw.stat().st_size:
-            raise ValueError('No kernel branch ranges found')
-        subprocess.run(['create_llvm_prof','--profiler=text',f'--binary={symbols / "vmlinux"}',
-                        f'--profile={raw}',f'--out={afdo}','--format=extbinary'],check=True)
+        if kind=='etm':
+            subprocess.run(['simpleperf','inject','-i',str(trace_file),
+                '--binary','kernel.kallsyms','--symdir',str(symbols),'-o',str(raw)],check=True)
+            if not raw.is_file() or not raw.stat().st_size:
+                raise ValueError('No kernel branch ranges found')
+            command=['--profiler=text',f'--profile={raw}']
+        else:
+            # LLVM documents this no-LBR path. Quality is lower than ETM and
+            # conversion is rejected unless nonzero samples really map.
+            command=['--profiler=perf','--use_lbr=false',f'--profile={trace_file}']
+        subprocess.run(['create_llvm_prof',*command,f'--binary={symbols / "vmlinux"}',
+                        f'--out={afdo}','--format=extbinary'],check=True)
         stats=reader(afdo)
         import shutil
         shutil.copyfile(afdo,output)
     m.update({'mode':'device-profile','profile_applied':False,'device_trace_collected':True,
-              'trace_sha256':sha(trace/'branch.data'),'profile_sha256':sha(output),**stats})
+              'capture_kind':kind,'trace_sha256':sha(trace_file),'profile_sha256':sha(output),**stats})
     output.with_suffix(output.suffix+'.json').write_text(json.dumps(m,indent=2)+'\n')
     return m
 

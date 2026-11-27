@@ -11,5 +11,7 @@
     "strict profile file and provenance checks",
     "no machine-function splitting backport",
     "no ETM hardware/firmware changes"
-  ]
+  ],
+  "pc_sample_reference": "https://clang.llvm.org/docs/UsersManual.html#using-sampling-profilers",
+  "pc_conversion_option": "create_llvm_prof --profiler=perf --use_lbr=false"
 }

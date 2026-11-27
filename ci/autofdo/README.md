@@ -58,6 +58,23 @@ falso. Preserve o diretório trace-* e o bundle de símbolos do MESMO build.
 
 ## Conversão no computador
 
+### Alternativa sem ETM: amostras de PC
+
+Se ETM estiver indisponível, o LLVM também suporta AutoFDO com amostras de
+endereços de instrução, usando create_llvm_prof --use_lbr=false. Essa coleta
+não reconstrói o histórico de desvios e tem menos informação que o fluxo do
+artigo. Ela exige acesso ao evento cpu-cycles do kernel, mas não ativa ETM:
+
+```sh
+su -c 'sh /data/local/tmp/fran-autofdo-device.sh record-pc /data/local/tmp/fran-autofdo 15'
+```
+
+Esta opção precisa ser testada no aparelho. A conversão usa o mesmo comando
+abaixo, identifica capture-kind.txt e rejeita resultados vazios. Não há
+ganho de desempenho presumido para a opção PC.
+
+### Converter qualquer uma das coletas
+
 Instale as ferramentas oficiais simpleperf (host), create_llvm_prof do
 projeto google/autofdo e llvm-profdata compatível. A conversão usa o fluxo
 ETM documentado pelo AOSP e não ignora divergências de build ID.
@@ -93,5 +110,6 @@ de Pixel/GKI publicados pelo Google em um Snapdragon/kernel diferente.
 
 * https://android-developers.googleblog.com/2026/03/BoostingAndroid%20PerformanceIntroducingAutoFDO.html
 * https://docs.kernel.org/dev-tools/autofdo.html
+* https://clang.llvm.org/docs/UsersManual.html#using-sampling-profilers
 * https://android.googlesource.com/platform/system/extras/+/master/simpleperf/doc/collect_etm_data_for_autofdo.md
 * https://android.googlesource.com/kernel/common/+/b15d6439553b1a5a266ca8e0f813481f55d991dd/scripts/Makefile.autofdo
